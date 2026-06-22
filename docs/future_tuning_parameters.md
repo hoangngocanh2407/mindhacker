@@ -1,0 +1,38 @@
+# Future Tuning Parameters — VLegalQA
+
+Tracking doc for knobs we've identified but deliberately **not** changing right now, so each pipeline change stays small and isolated. Add to this list instead of tuning ad-hoc mid-implementation. When picking up one of these, measure on the internal eval set (once it exists) before burning a real submission.
+
+Context for current numbers:
+- Submission #989 (2026-06-22), BM25-only, `top_k_retrieve=15`, `top_k_final=5`: `ARTICLES_F2MACRO=0.1609` (`precision=0.086`, `recall=0.23`), `DOCS_F2MACRO=0.1693`.
+- Hybrid submission (2026-06-22), BM25+dense RRF, same cutoffs, `rrf_k=60`: `ARTICLES_F2MACRO=0.1461` (worse), `DOCS_F2MACRO=0.186` (better). Root cause analysis in [docs/reports/phase2_report.md](reports/phase2_report.md): equal-weight RRF lets dense's noisy article-level ranking displace BM25's correct article-level picks, even though dense agrees with BM25 fairly often at the document level. **Hybrid is not the default submission mode** as a result — see Phase 2 report for the full evidence (side-by-side BM25/dense/fusion top-5 comparisons on real questions).
+
+## Retrieval cutoffs
+
+- **`top_k_retrieve`** (currently 15) — how many candidates BM25/dense each return before fusion/truncation. Recall 23% suggests this might already be excluding correct articles before they ever reach the final list. Try 20–30.
+- **`top_k_final`** (currently 5) — how many articles actually go into `relevant_docs`/`relevant_articles` per question. Since IR is scored with F2 (recall weighted 2x precision), raising this to 8–10 trades precision for recall — worth a sweep once there's an eval set to measure the trade-off instead of guessing.
+- Note these two interact — sweep them together, not independently, since a wider `top_k_retrieve` only helps if `top_k_final` doesn't immediately cut it back down.
+
+## Fusion (RRF) — confirmed regression on ARTICLES, needs real fix before reuse
+
+- **`rrf_k`** (currently 60, the standard default) — controls how quickly rank position decays in the fusion score. Lower `k` rewards top ranks more aggressively; higher `k` flattens the contribution curve. Worth trying 10–100, but unlikely to fix the core problem below on its own.
+- **Weighted RRF instead of equal weighting** — confirmed root cause (see Phase 2 report) is that equal-weight RRF trusts dense's article-level ranking as much as BM25's, but dense is reliably weaker at article-level discrimination on this corpus. A weighted fusion (e.g. BM25 contributes more per rank than dense, or dense's contribution is scaled down by a confidence factor) is the most promising fix — needs the eval set to tune the weight properly, not leaderboard guessing.
+- **Document-level expansion instead of article-level fusion** — alternative architecture: use BM25 to pick the right document(s) first, then only let dense re-rank/expand *within* those documents' articles, instead of letting dense freely inject articles from documents BM25 didn't surface. Untried.
+- **Chunked dense embeddings** — combined with the chunking item below, embedding at the sub-article (chunk) level instead of whole-article level might give dense sharper article-level discrimination, since right now a whole long article's embedding can be dominated by boilerplate shared with neighboring articles in the same document. Untried, larger change (needs article_id remapping).
+- All three above are deferred until the eval set (currently also deferred, see Roadmap) exists — tuning RRF weights against the 50-question public leaderboard sample is too noisy and too expensive in submission slots to do blind.
+
+## Tokenization (BM25)
+
+- Current tokenizer is plain regex (`\w+` + lowercase), no Vietnamese word segmentation. Legal compound terms like "doanh nghiệp nhỏ và vừa" are tokenized word-by-word, not as a phrase — a real Vietnamese segmenter (e.g. `pyvi`, `underthesea`) could meaningfully change BM25 term-matching behavior. Untested whether it helps or hurts on this domain.
+- Stopword removal — not done. Could reduce noise in BM25 scoring but risks dropping legally meaningful short words (e.g. "và", "hoặc" rarely matter, but legal connector words sometimes do).
+
+## Chunking
+
+- Long articles (some up to ~245k chars) are currently NOT chunked — each "Điều" stays one retrieval unit. For BM25 this is fine (no context limit). For the dense embedding model added in Phase 2, `sentence-transformers` silently truncates anything past the model's max sequence length, so very long articles are only partially represented in their embedding. If eval shows dense retrieval underperforming specifically on long-article questions, revisit chunking (with `article_id` remapping back to the parent article on output) — deferred for now because it adds real implementation complexity (chunk-to-article remapping in export) for an unconfirmed payoff.
+
+## Embedding model choice
+
+- Currently using `bkai-foundation-models/vietnamese-bi-encoder` (chosen for: open-source, well under the 14B param cap, released well before 2026-03-01, prior benchmarks on Vietnamese legal retrieval). Alternatives considered but not used yet: `AITeamVN/Vietnamese_Embedding` (longer context, 2048 tokens, but need to re-verify exact release date against the cutoff before using), `truro7/vn-law-embedding`. Worth A/B once eval set exists.
+
+## Answer generation
+
+- Still template-based (Phase 1/2 scope is retrieval-only improvements). Swapping in an actual LLM (e.g. Qwen3 ≤14B) for answer synthesis is a separate, larger change — not a tuning knob, tracked as its own future phase rather than here.

@@ -84,6 +84,51 @@ def test_run_pipeline_raises_value_error_on_unrecognized_question_schema(tmp_pat
         run_pipeline(str(q_path), str(c_path), str(out_path))
 
 
+class _StubDenseRetriever:
+    """Duck-types BM25Retriever/DenseRetriever's .search() without loading a
+    real embedding model, so fusion can be tested without network access."""
+
+    def __init__(self, fixed_results: list[dict]):
+        self._fixed_results = fixed_results
+
+    def search(self, query: str, top_k: int = 15) -> list[dict]:
+        return self._fixed_results[:top_k]
+
+
+def test_run_pipeline_fuses_dense_results_when_dense_retriever_given(tmp_path):
+    questions = [{"id": 1, "question": "Hợp đồng lao động xử lý vi phạm kỷ luật như thế nào?"}]
+    q_path = tmp_path / "questions.json"
+    c_path = tmp_path / "corpus.json"
+    out_path = tmp_path / "results.json"
+    q_path.write_text(json.dumps(questions, ensure_ascii=False), encoding="utf-8")
+    c_path.write_text(json.dumps(CORPUS, ensure_ascii=False), encoding="utf-8")
+
+    # Dense retriever "votes" for the article BM25 would otherwise rank lower.
+    stub_dense = _StubDenseRetriever([CORPUS[0]])
+
+    entries = run_pipeline(
+        str(q_path), str(c_path), str(out_path), top_k_retrieve=2, top_k_final=2,
+        dense_retriever=stub_dense,
+    )
+
+    assert len(entries) == 1
+    assert validate_entry(entries[0]) == []
+    assert "A|Doc A|Điều 1" in entries[0]["relevant_articles"]
+
+
+def test_run_pipeline_without_dense_retriever_matches_phase1_bm25_only_behavior(tmp_path):
+    questions = [{"id": 1, "question": "Ưu đãi thuế cho doanh nghiệp nhỏ và vừa khi đấu thầu là gì?"}]
+    q_path = tmp_path / "questions.json"
+    c_path = tmp_path / "corpus.json"
+    out_path = tmp_path / "results.json"
+    q_path.write_text(json.dumps(questions, ensure_ascii=False), encoding="utf-8")
+    c_path.write_text(json.dumps(CORPUS, ensure_ascii=False), encoding="utf-8")
+
+    entries = run_pipeline(str(q_path), str(c_path), str(out_path), top_k_retrieve=2, top_k_final=1)
+
+    assert entries[0]["relevant_articles"] == ["A|Doc A|Điều 1"]
+
+
 def test_run_pipeline_respects_limit(tmp_path):
     questions = [
         {"id": 1, "question": "Ưu đãi thuế cho doanh nghiệp nhỏ và vừa khi đấu thầu là gì?"},

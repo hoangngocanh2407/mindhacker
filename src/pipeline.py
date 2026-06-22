@@ -1,6 +1,7 @@
 import json
 
 from src.export import build_result_entry, write_results
+from src.fusion import reciprocal_rank_fusion
 from src.retrieval import BM25Retriever
 
 QUESTION_TEXT_KEYS = ("question", "query", "question_text", "content")
@@ -26,18 +27,34 @@ def run_pipeline(
     top_k_retrieve: int = 15,
     top_k_final: int = 5,
     limit: int | None = None,
+    dense_retriever=None,
+    rrf_k: int = 60,
 ) -> list[dict]:
+    """If `dense_retriever` is given (any object with a `.search(query, top_k)`
+    method returning the same shape as BM25Retriever.search), its results are
+    fused with BM25 via Reciprocal Rank Fusion. If omitted, behavior is
+    identical to Phase 1 — BM25-only retrieval.
+    """
     questions = _load_json(questions_path)
     if limit is not None:
         questions = questions[:limit]
 
     corpus = _load_json(clean_corpus_path)
-    retriever = BM25Retriever(corpus)
+    bm25_retriever = BM25Retriever(corpus)
 
     entries = []
     for question in questions:
         query = get_question_text(question)
-        top_articles = retriever.search(query, top_k=top_k_retrieve)
+        bm25_results = bm25_retriever.search(query, top_k=top_k_retrieve)
+
+        if dense_retriever is not None:
+            dense_results = dense_retriever.search(query, top_k=top_k_retrieve)
+            top_articles = reciprocal_rank_fusion(
+                [bm25_results, dense_results], k=rrf_k, top_k=top_k_retrieve
+            )
+        else:
+            top_articles = bm25_results
+
         entries.append(build_result_entry(question["id"], top_articles, top_k_final=top_k_final))
 
     write_results(entries, output_path)

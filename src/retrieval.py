@@ -2,6 +2,8 @@ import re
 
 from rank_bm25 import BM25Okapi
 
+from src.corpus_text import searchable_text
+
 
 def tokenize(text: str) -> list[str]:
     # Baseline tokenizer for Vietnamese, Phase 1 only: lowercase + \w+ split.
@@ -9,14 +11,10 @@ def tokenize(text: str) -> list[str]:
     return re.findall(r"\w+", text.lower())
 
 
-def _searchable_text(record: dict) -> str:
-    return f"{record.get('doc_name', '')} {record.get('article_id', '')} {record.get('text', '')}"
-
-
 class BM25Retriever:
     def __init__(self, corpus: list[dict]):
         self.corpus = corpus
-        self._tokenized = [tokenize(_searchable_text(record)) for record in corpus]
+        self._tokenized = [tokenize(searchable_text(record)) for record in corpus]
         self._bm25 = BM25Okapi(self._tokenized)
 
     def search(self, query: str, top_k: int = 15) -> list[dict]:
