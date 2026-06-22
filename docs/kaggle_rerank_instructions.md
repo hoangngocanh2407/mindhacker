@@ -8,25 +8,35 @@ BM25 chỉ đưa điều luật đúng vào top-3 cho ~20% câu (recall 0.20). N
 
 ## Các bước
 
-### 1. Tạo Kaggle Dataset chứa repo
-- Nén thư mục dự án thành 1 file zip **bao gồm**: `src/`, `vbpl_dat.json`, `R2AIStage1DATA.json`. (Không cần `tests/`, `submission/`, `docs/`.)
-- Kaggle → **Datasets → New Dataset** → upload zip đó. Đặt tên sao cho slug là `vlegalqa-repo` (hoặc tên khác, nhớ sửa `REPO_DIR` trong script).
-- Sau khi tạo, dữ liệu sẽ nằm ở `/kaggle/input/vlegalqa-repo/` (kiểm tra cấu trúc: phải thấy `/kaggle/input/vlegalqa-repo/src/...`, `/kaggle/input/vlegalqa-repo/vbpl_dat.json`). Nếu Kaggle giải nén tạo thêm 1 cấp thư mục con, sửa `REPO_DIR` cho khớp.
+Workflow: **code lấy từ GitHub (git clone mỗi lần chạy → luôn mới nhất)**, **data lấy từ Kaggle Dataset** (vì file data bị gitignore, không nằm trong repo). Setup token + dataset 1 lần, sau đó mỗi lần đổi code chỉ cần chạy lại notebook (không re-upload gì).
 
-### 2. Tạo Notebook, bật GPU + Internet
+### 1. Tạo GitHub Personal Access Token (PAT) — 1 lần
+Vì repo `hoangngocanh2407/mindhacker` để **private**, Kaggle cần token để clone.
+- GitHub → **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**.
+- **Repository access**: chỉ chọn repo `mindhacker`. **Permissions → Contents: Read-only** là đủ.
+- Tạo xong, **copy token** (chỉ hiện 1 lần).
+
+### 2. Lưu token vào Kaggle Secrets — 1 lần
+- Trong Kaggle Notebook → menu **Add-ons → Secrets** → **Add a new secret**.
+- **Label**: `GITHUB_PAT` (đúng tên này, khớp `GITHUB_PAT_SECRET` trong script). **Value**: dán token.
+- Bật (attach) secret cho notebook.
+
+### 3. Tạo Kaggle Dataset chứa DỮ LIỆU — 1 lần
+- Nén **chỉ 2 file**: `vbpl_dat.json`, `R2AIStage1DATA.json`.
+- Kaggle → **Datasets → New Dataset** → upload. Ghi nhớ đường dẫn mount, ví dụ `/kaggle/input/vlegalqa-data/`.
+- Sửa `DATA_DIR` trong script cho khớp đường dẫn thật (kiểm tra ở panel **Input**; nếu Kaggle lồng thêm thư mục con thì trỏ vào đúng cấp chứa 2 file json).
+
+### 4. Tạo Notebook, bật GPU + Internet
 - Kaggle → **Code → New Notebook**.
-- Panel bên phải:
-  - **Accelerator** → chọn **GPU** (T4 hoặc P100).
-  - **Internet** → **On** (cần để tải model reranker từ Hugging Face).
-- **Add Input** → thêm Dataset `vlegalqa-repo` vừa tạo.
+- Panel phải: **Accelerator → GPU** (T4/P100); **Internet → On** (cần để clone GitHub + tải model HF).
+- **Add Input** → thêm Dataset dữ liệu (mục 3). **Add-ons → Secrets** → bật `GITHUB_PAT`.
 
-### 3. Chạy
-- Dán toàn bộ nội dung [notebooks/kaggle_rerank.py](../notebooks/kaggle_rerank.py) vào một cell, chạy.
-- Kiểm tra `REPO_DIR` ở đầu script khớp với đường dẫn input thật.
-- Tuỳ chọn ở đầu script:
-  - `USE_DENSE=True` — gộp candidate từ dense để tăng recall pool (khuyến nghị bật).
-  - `TOP_K_RETRIEVE=50` — độ rộng pool; tăng (75/100) nếu muốn trần recall cao hơn, đổi lại chậm hơn.
-  - `TOP_K_FINAL=3` — cutoff tốt nhất đã xác nhận trên leaderboard.
+### 5. Chạy
+- Dán toàn bộ [notebooks/kaggle_rerank.py](../notebooks/kaggle_rerank.py) vào một cell, chạy.
+- Script tự: clone code từ GitHub (token đọc từ Secret, **không in ra**), cài `rank-bm25`/`pyvi`, đọc data từ `DATA_DIR`, build candidate, rerank trên GPU, xuất zip.
+- Kiểm tra log in dòng `HEAD: <commit>` để chắc đang chạy đúng code mới nhất.
+- Tuỳ chọn ở đầu script: `USE_DENSE`, `TOP_K_RETRIEVE` (50; tăng 75/100 nếu muốn trần recall cao hơn), `TOP_K_FINAL` (3), `RERANK_BATCH_SIZE`.
+- Lần sau code đổi: chỉ cần **Run all** lại — clone tự lấy bản mới. Không re-upload dataset (trừ khi data đổi).
 - Thời gian: rerank 2000 câu × ~50-100 candidate trên T4 thường vài phút đến ~30 phút tuỳ pool.
 
 #### Nếu gặp CUDA out of memory
@@ -35,7 +45,7 @@ BM25 chỉ đưa điều luật đúng vào top-3 cho ~20% câu (recall 0.20). N
 - Hoặc giảm `TOP_K_RETRIEVE` (pool nhỏ hơn).
 - Script đã set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` để giảm phân mảnh.
 
-### 4. Tải kết quả về và nộp
+### 6. Tải kết quả về và nộp
 - Script ghi `submission.zip` (và `results.json`) vào `/kaggle/working/`.
 - Tải `submission.zip` từ panel **Output** của notebook.
 - Nộp lên leaderboard, so ARTICLES_F2 với kf3 hiện tại (**0.1669**).

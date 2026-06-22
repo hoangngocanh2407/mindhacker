@@ -1,16 +1,21 @@
 """VLegalQA — cross-encoder reranker run, for a Kaggle GPU notebook.
 
-Paste this whole file into a single Kaggle notebook cell (GPU + Internet ON).
-It reuses the repo's tested src/ modules (uploaded as a Kaggle Dataset), builds
-a wide BM25 (+ optional dense) candidate pool, reranks on GPU with
-BAAI/bge-reranker-v2-m3, and writes a validated, flat submission.zip to
+Workflow: clone the (private) code repo from GitHub each run so the code is
+always the latest, and read the competition data from a Kaggle Dataset (the
+data files are gitignored / not in the repo). Paste this whole file into one
+Kaggle cell (GPU + Internet ON).
+
+It builds a wide BM25 (+ optional dense) candidate pool, reranks on GPU with
+BAAI/bge-reranker-v2-m3, and writes a validated flat submission.zip to
 /kaggle/working/.
 
-See docs/kaggle_rerank_instructions.md for the full step-by-step (dataset
-setup, enabling GPU/Internet, downloading the result).
+Prereqs (one-time): a GitHub Personal Access Token stored as a Kaggle Secret,
+and a Kaggle Dataset holding the two data files. See
+docs/kaggle_rerank_instructions.md for the full step-by-step.
 """
 import json
 import os
+import subprocess
 import sys
 import time
 import zipfile
@@ -19,34 +24,63 @@ import zipfile
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 # --- Config -----------------------------------------------------------------
-# Folder (a Kaggle Dataset) that contains this repo: src/, vbpl_dat.json,
-# R2AIStage1DATA.json. Adjust the dataset slug to match what you uploaded.
-REPO_DIR = "/kaggle/input/vlegalqa-repo"
+GITHUB_REPO = "hoangngocanh2407/mindhacker"   # owner/repo (private)
+GIT_BRANCH = "main"
+GITHUB_PAT_SECRET = "GITHUB_PAT"              # name of the Kaggle Secret holding the token
+
+# Kaggle Dataset folder containing vbpl_dat.json + R2AIStage1DATA.json.
+# Adjust to match your dataset's mounted path (see the Input panel).
+DATA_DIR = "/kaggle/input/vlegalqa-data"
+
+CLONE_DIR = "/kaggle/working/mindhacker"
 OUT_DIR = "/kaggle/working"
 
-TOP_K_RETRIEVE = 50   # wide candidate pool -> higher recall ceiling for the reranker
-TOP_K_FINAL = 3       # best cutoff found on the leaderboard (ARTICLES_F2)
-USE_DENSE = True      # also pull dense candidates into the pool (raises recall ceiling)
+TOP_K_RETRIEVE = 50      # wide candidate pool -> higher recall ceiling for the reranker
+TOP_K_FINAL = 3          # best cutoff found on the leaderboard (ARTICLES_F2)
+USE_DENSE = True         # also pull dense candidates into the pool (raises recall ceiling)
 RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
 RERANK_MAX_LENGTH = 512  # cap seq len — legal articles reach 245k chars; uncapped = GPU OOM
 RERANK_BATCH_SIZE = 16   # lower this (8/4) if you still hit CUDA OOM
 # ---------------------------------------------------------------------------
 
-sys.path.insert(0, REPO_DIR)
+# --- Clone the private code repo (token read from Kaggle Secrets, never printed) ---
+from kaggle_secrets import UserSecretsClient  # noqa: E402
 
-# Kaggle images ship sentence-transformers + torch; install the small extras.
+_pat = UserSecretsClient().get_secret(GITHUB_PAT_SECRET)
+subprocess.run(["rm", "-rf", CLONE_DIR], check=False)
+subprocess.run(
+    ["git", "clone", "--quiet", "--depth", "1", "--branch", GIT_BRANCH,
+     f"https://{_pat}@github.com/{GITHUB_REPO}.git", CLONE_DIR],
+    check=True,
+)
+# Scrub the token from the cloned repo's remote so it can't leak into output.
+subprocess.run(
+    ["git", "-C", CLONE_DIR, "remote", "set-url", "origin",
+     f"https://github.com/{GITHUB_REPO}.git"],
+    check=False,
+)
+del _pat
+print(f"Cloned {GITHUB_REPO}@{GIT_BRANCH} -> {CLONE_DIR}")
+print("  HEAD:", subprocess.run(
+    ["git", "-C", CLONE_DIR, "log", "-1", "--oneline"],
+    capture_output=True, text=True).stdout.strip())
+
+sys.path.insert(0, CLONE_DIR)
 os.system(f"{sys.executable} -m pip install -q rank-bm25 pyvi")
 
-from src.preprocess import preprocess_corpus  # noqa: E402
 from src.pipeline import run_pipeline  # noqa: E402
+from src.preprocess import preprocess_corpus  # noqa: E402
 from src.reranker import Reranker  # noqa: E402
 from src.validate import validate_results  # noqa: E402
 
-RAW_CORPUS = os.path.join(REPO_DIR, "vbpl_dat.json")
-RAW_QUESTIONS = os.path.join(REPO_DIR, "R2AIStage1DATA.json")
+RAW_CORPUS = os.path.join(DATA_DIR, "vbpl_dat.json")
+RAW_QUESTIONS = os.path.join(DATA_DIR, "R2AIStage1DATA.json")
 CLEAN_CORPUS = os.path.join(OUT_DIR, "corpus_clean.json")
 RESULTS_PATH = os.path.join(OUT_DIR, "results.json")
 ZIP_PATH = os.path.join(OUT_DIR, "submission.zip")
+
+assert os.path.exists(RAW_CORPUS), f"Not found: {RAW_CORPUS} — fix DATA_DIR to your dataset path"
+assert os.path.exists(RAW_QUESTIONS), f"Not found: {RAW_QUESTIONS} — fix DATA_DIR"
 
 start = time.time()
 
