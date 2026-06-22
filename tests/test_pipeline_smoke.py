@@ -178,6 +178,61 @@ def test_run_pipeline_uses_batch_search_when_dense_retriever_supports_it(tmp_pat
         assert validate_entry(entry) == []
 
 
+class _StubReranker:
+    """Reranks by a fixed preferred tag order, no model needed."""
+
+    def __init__(self, preferred_tag: str):
+        self.preferred_tag = preferred_tag
+        self.seen_candidate_counts = []
+
+    def rerank(self, query: str, candidates: list[dict], top_k: int = 3) -> list[dict]:
+        self.seen_candidate_counts.append(len(candidates))
+        ordered = sorted(
+            candidates, key=lambda c: 0 if c["relevant_article_tag"] == self.preferred_tag else 1
+        )
+        return ordered[:top_k]
+
+
+def test_run_pipeline_reranker_takes_precedence_and_selects_preferred(tmp_path):
+    questions = [{"id": 1, "question": "Hợp đồng lao động xử lý vi phạm kỷ luật như thế nào?"}]
+    q_path = tmp_path / "questions.json"
+    c_path = tmp_path / "corpus.json"
+    out_path = tmp_path / "results.json"
+    q_path.write_text(json.dumps(questions, ensure_ascii=False), encoding="utf-8")
+    c_path.write_text(json.dumps(CORPUS, ensure_ascii=False), encoding="utf-8")
+
+    reranker = _StubReranker(preferred_tag="B|Doc B|Điều 2")
+    entries = run_pipeline(
+        str(q_path), str(c_path), str(out_path), top_k_retrieve=2, top_k_final=1,
+        reranker=reranker,
+    )
+
+    assert entries[0]["relevant_articles"] == ["B|Doc B|Điều 2"]
+    assert validate_entry(entries[0]) == []
+
+
+def test_run_pipeline_reranker_pool_unions_dense_candidates(tmp_path):
+    # BM25 alone surfaces Doc A; dense stub surfaces Doc B. The reranker should
+    # receive BOTH as candidates (union), proving the wider recall pool.
+    questions = [{"id": 1, "question": "Ưu đãi thuế cho doanh nghiệp nhỏ và vừa khi đấu thầu?"}]
+    q_path = tmp_path / "questions.json"
+    c_path = tmp_path / "corpus.json"
+    out_path = tmp_path / "results.json"
+    q_path.write_text(json.dumps(questions, ensure_ascii=False), encoding="utf-8")
+    c_path.write_text(json.dumps(CORPUS, ensure_ascii=False), encoding="utf-8")
+
+    dense_stub = _StubDenseRetriever([CORPUS[1]])  # votes Doc B
+    reranker = _StubReranker(preferred_tag="B|Doc B|Điều 2")
+    entries = run_pipeline(
+        str(q_path), str(c_path), str(out_path), top_k_retrieve=1, top_k_final=1,
+        dense_retriever=dense_stub, reranker=reranker,
+    )
+
+    # reranker saw candidates from both BM25 (Doc A) and dense (Doc B)
+    assert reranker.seen_candidate_counts[0] == 2
+    assert entries[0]["relevant_articles"] == ["B|Doc B|Điều 2"]
+
+
 def test_run_pipeline_without_dense_retriever_matches_phase1_bm25_only_behavior(tmp_path):
     questions = [{"id": 1, "question": "Ưu đãi thuế cho doanh nghiệp nhỏ và vừa khi đấu thầu là gì?"}]
     q_path = tmp_path / "questions.json"

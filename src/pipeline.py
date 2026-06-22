@@ -21,6 +21,20 @@ def _load_json(path: str) -> list[dict]:
         return json.load(f)
 
 
+def _dedupe_by_tag(records: list[dict]) -> list[dict]:
+    """Unique candidate records by relevant_article_tag, first-seen order.
+    Order doesn't matter for reranking (the reranker re-scores everything),
+    only uniqueness does."""
+    seen = set()
+    unique = []
+    for record in records:
+        tag = record["relevant_article_tag"]
+        if tag not in seen:
+            seen.add(tag)
+            unique.append(record)
+    return unique
+
+
 def run_pipeline(
     questions_path: str,
     clean_corpus_path: str,
@@ -33,6 +47,7 @@ def run_pipeline(
     dense_weight: float = 1.0,
     expand_abbreviations: bool = False,
     use_segmentation: bool = False,
+    reranker=None,
 ) -> list[dict]:
     """If `dense_retriever` is given (any object with a `.search(query, top_k)`
     method returning the same shape as BM25Retriever.search), its results are
@@ -56,6 +71,14 @@ def run_pipeline(
     `use_segmentation`: if True, BM25 (index + query) uses the Vietnamese
     word-segmenting tokenizer instead of the plain regex one. Affects BM25
     only — dense uses its own subword tokenizer. Default False.
+
+    `reranker` (GPU): if given (object with `.rerank(query, candidates, top_k)`),
+    it takes precedence over RRF fusion. The candidate pool is BM25's
+    top_k_retrieve, unioned with dense's if a dense_retriever is also given
+    (wider pool = higher recall ceiling), deduped by relevant_article_tag; the
+    reranker re-scores it and the top results become the answer. Use a large
+    top_k_retrieve (e.g. 50) to give the reranker room to recover correct
+    articles BM25 ranked low.
     """
     questions = _load_json(questions_path)
     if limit is not None:
@@ -77,11 +100,19 @@ def run_pipeline(
         query = query_texts[index]
         bm25_results = bm25_retriever.search(query, top_k=top_k_retrieve)
 
+        dense_results = None
         if dense_retriever is not None:
             if dense_results_by_index is not None:
                 dense_results = dense_results_by_index[index]
             else:
                 dense_results = dense_retriever.search(query, top_k=top_k_retrieve)
+
+        if reranker is not None:
+            candidates = bm25_results
+            if dense_results is not None:
+                candidates = _dedupe_by_tag(bm25_results + dense_results)
+            top_articles = reranker.rerank(query, candidates, top_k=top_k_retrieve)
+        elif dense_results is not None:
             top_articles = reciprocal_rank_fusion(
                 [bm25_results, dense_results],
                 k=rrf_k,

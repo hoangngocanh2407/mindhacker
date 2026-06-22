@@ -114,9 +114,15 @@
 
 ---
 
-## Backlog (để sau — cần GPU mạnh hơn / nhiều thời gian)
+## Cross-encoder reranker — CODE DONE, chạy trên Kaggle GPU (chưa nộp)
 
-- **Cross-encoder reranker** (`BAAI/bge-reranker-v2-m3`): BM25/dense lấy candidate pool, reranker chọn lại top điều luật — hướng mạnh nhất để tăng ARTICLES_F2. **Hoãn vì:** rerank ~80k cặp (câu hỏi, điều luật) trên máy hiện tại (MX450 2GB, torch CPU-only) là không khả thi về thời gian. Cần GPU mạnh hơn.
+Lý do: mọi lever retrieval rẻ trên CPU đã cạn (trần ARTICLES_F2 ~0.1669 = BM25 kf3). Reranker là lever duy nhất còn khả năng phá trần. Máy local (MX450 2GB, torch CPU-only) không chạy nổi ~80k+ cặp → chuyển sang **Kaggle GPU miễn phí**.
+
+**Đã làm:** `src/reranker.py` (`Reranker` bọc `BAAI/bge-reranker-v2-m3`, model inject được để test), `run_pipeline(reranker=...)` — candidate pool BM25 top-K ∪ dense, dedupe, rerank, lấy top-3. 80/80 test pass (stub, không cần GPU). Notebook + hướng dẫn: [notebooks/kaggle_rerank.py](../../notebooks/kaggle_rerank.py), [docs/kaggle_rerank_instructions.md](../kaggle_rerank_instructions.md).
+
+**Bước tiếp:** người dùng chạy notebook trên Kaggle (BM25 top-50 ∪ dense → rerank → top-3), tải `submission.zip`, nộp so với kf3 (0.1669). Trần thật khi đó bị chặn bởi candidate recall (điều đúng có trong BM25 top-50 không) — nếu reranker không vượt, tăng `TOP_K_RETRIEVE` hoặc kết luận BM25 không surface đủ.
+
+## Backlog (để sau)
 - **Chunking điều luật dài:** chia điều luật dài (tới ~245k ký tự) thành đoạn nhỏ để dense/reranker không chỉ "đọc" phần đầu. Phụ thuộc quyết định reranker. Tốn công remap chunk → article gốc khi export.
 
 ---
