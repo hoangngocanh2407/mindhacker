@@ -16,6 +16,7 @@ sys.path.insert(0, ROOT)
 
 from src.pipeline import run_pipeline  # noqa: E402
 from src.preprocess import preprocess_corpus  # noqa: E402
+from src.run_naming import run_slug  # noqa: E402
 from src.validate import validate_results  # noqa: E402
 
 RAW_CORPUS = os.path.join(ROOT, "vbpl_dat.json")
@@ -25,12 +26,11 @@ DENSE_EMBEDDINGS_PATH = os.path.join(ROOT, "data", "processed", "dense_embedding
 DENSE_META_PATH = os.path.join(ROOT, "data", "processed", "dense_meta.json")
 
 TOP_K_RETRIEVE = 15
-TOP_K_FINAL = 5
 RRF_K = 60
 
 
-def _output_paths(mode: str) -> tuple[str, str, str, str]:
-    out_dir = os.path.join(ROOT, "submission", mode)
+def _output_paths(slug: str) -> tuple[str, str, str, str]:
+    out_dir = os.path.join(ROOT, "submission", slug)
     return (
         out_dir,
         os.path.join(out_dir, "results.json"),
@@ -74,12 +74,29 @@ def main() -> None:
             "abbreviations); use to A/B against the plain run on the leaderboard."
         ),
     )
+    parser.add_argument(
+        "--top-k-final",
+        type=int,
+        default=3,
+        help=(
+            "How many articles to put in relevant_docs/relevant_articles per "
+            "question (default 3 — best ARTICLES_F2 found in the leaderboard "
+            "sweep; gold sets are small so fewer, higher-precision picks win on "
+            "F2). Raising it trades precision for recall. If set above the "
+            "retrieve depth (%d), the retrieve depth is raised to match." % TOP_K_RETRIEVE
+        ),
+    )
     args = parser.parse_args()
 
+    top_k_final = args.top_k_final
+    top_k_retrieve = max(TOP_K_RETRIEVE, top_k_final)
+
+    slug = run_slug(args.retriever, top_k_final, args.dense_weight, args.expand_query)
     start_time = time.time()
-    out_dir, results_path, zip_path, run_meta_path = _output_paths(args.retriever)
+    out_dir, results_path, zip_path, run_meta_path = _output_paths(slug)
     os.makedirs(out_dir, exist_ok=True)
 
+    print(f"Run: {slug}  (output -> submission/{slug}/)")
     print(f"Mode: {args.retriever}")
     print("Preprocessing corpus...")
     corpus_summary = preprocess_corpus(RAW_CORPUS, CLEAN_CORPUS)
@@ -109,8 +126,8 @@ def main() -> None:
         RAW_QUESTIONS,
         CLEAN_CORPUS,
         results_path,
-        top_k_retrieve=TOP_K_RETRIEVE,
-        top_k_final=TOP_K_FINAL,
+        top_k_retrieve=top_k_retrieve,
+        top_k_final=top_k_final,
         dense_retriever=dense_retriever,
         rrf_k=RRF_K,
         dense_weight=args.dense_weight,
@@ -134,10 +151,11 @@ def main() -> None:
 
     elapsed = time.time() - start_time
     run_meta = {
+        "slug": slug,
         "mode": args.retriever,
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "top_k_retrieve": TOP_K_RETRIEVE,
-        "top_k_final": TOP_K_FINAL,
+        "top_k_retrieve": top_k_retrieve,
+        "top_k_final": top_k_final,
         "rrf_k": RRF_K if args.retriever == "hybrid" else None,
         "dense_weight": args.dense_weight if args.retriever == "hybrid" else None,
         "expand_query": args.expand_query,

@@ -20,7 +20,7 @@ from src.pipeline import get_question_text  # noqa: E402
 # the question. This script exists so a human can eyeball that before any
 # leaderboard submission.
 
-DEFAULT_RESULTS_PATH = os.path.join(ROOT, "submission", "bm25", "results.json")
+DEFAULT_RESULTS_PATH = os.path.join(ROOT, "submission", "bm25_kf5", "results.json")
 QUESTIONS_PATH = os.path.join(ROOT, "R2AIStage1DATA.json")
 
 

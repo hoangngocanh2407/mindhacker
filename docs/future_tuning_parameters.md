@@ -6,11 +6,29 @@ Context for current numbers:
 - Submission #989 (2026-06-22), BM25-only, `top_k_retrieve=15`, `top_k_final=5`: `ARTICLES_F2MACRO=0.1609` (`precision=0.086`, `recall=0.23`), `DOCS_F2MACRO=0.1693`.
 - Hybrid submission (2026-06-22), BM25+dense RRF, same cutoffs, `rrf_k=60`: `ARTICLES_F2MACRO=0.1461` (worse), `DOCS_F2MACRO=0.186` (better). Root cause analysis in [docs/reports/phase2_report.md](reports/phase2_report.md): equal-weight RRF lets dense's noisy article-level ranking displace BM25's correct article-level picks, even though dense agrees with BM25 fairly often at the document level. **Hybrid is not the default submission mode** as a result — see Phase 2 report for the full evidence (side-by-side BM25/dense/fusion top-5 comparisons on real questions).
 
-## Retrieval cutoffs
+## Retrieval cutoffs — MEASURED (top_k_final sweep, BM25, leaderboard)
 
-- **`top_k_retrieve`** (currently 15) — how many candidates BM25/dense each return before fusion/truncation. Recall 23% suggests this might already be excluding correct articles before they ever reach the final list. Try 20–30.
-- **`top_k_final`** (currently 5) — how many articles actually go into `relevant_docs`/`relevant_articles` per question. Since IR is scored with F2 (recall weighted 2x precision), raising this to 8–10 trades precision for recall — worth a sweep once there's an eval set to measure the trade-off instead of guessing.
-- Note these two interact — sweep them together, not independently, since a wider `top_k_retrieve` only helps if `top_k_final` doesn't immediately cut it back down.
+`--top-k-final` flag added; each value writes to its own `submission/bm25_kf<N>/`.
+
+| top_k_final | ARTICLES_F2 | precision | recall | DOCS_F2 |
+|---|---|---|---|---|
+| 1 | (built `bm25_kf1`, chưa nộp) | | | |
+| 2 | 0.1308 | 0.130 | 0.1383 | 0.1799 |
+| **3 ← CHỐT** | **0.1669** | 0.120 | 0.200 | 0.1656 |
+| 5 (default cũ) | 0.1609 | 0.086 | 0.230 | 0.1693 |
+| 10 | 0.1352 | 0.0515 | 0.2667 | 0.1503 |
+
+**kf3 là tối ưu** (peak rõ): 5→3 tăng (recall đổi lấy precision có lợi), nhưng 3→2 thì recall sụp (0.20→0.138, mất điều ở hạng 3) → F2 giảm mạnh. **Default đã đổi 5→3.** (Lưu ý: DOCS_F2 lại peak ở kf2=0.1799 nhưng ARTICLES là metric ưu tiên → chốt theo ARTICLES = kf3.)
+
+**Kết luận đo được:**
+- **Giảm cutoff cải thiện F2** (5→3: 0.1609→0.1669) vì gold set mỗi câu rất ít điều (~1-2): cắt bớt slot cứu precision (0.086→0.12) nhiều hơn mất recall (0.23→0.20). Xu hướng còn lên khi đi xuống → đang thử kf2, kf1.
+- Tăng 5→10 thì F2 giảm (precision sụp, recall chỉ +0.037 vì slot 6-10 hầu như không chứa gold).
+- **Recall thấp & gần phẳng dù mở rộng cutoff** → điều luật đúng không nằm trong top-10 cho ~73% câu → **trần là chất lượng RANKING của BM25, không phải cutoff.**
+- `top_k_retrieve=15` không phải nút thắt.
+
+**Cảnh báo nhiễu:** chênh lệch 0.1609 vs 0.1669 nhỏ, đo trên gold 50 câu → có phần nhiễu, nhưng P/R dịch chuyển nhất quán theo cơ chế nên hướng (giảm cutoff) là thật.
+
+**Hệ quả:** tuning cutoff cho gain nhỏ-thật, gần cạn. Để nâng trần đáng kể phải cải thiện ranking quality (Tokenization tiếng Việt cho BM25 + Backlog reranker cần GPU).
 
 ## Fusion (RRF)
 
