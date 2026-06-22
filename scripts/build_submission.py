@@ -53,6 +53,17 @@ def main() -> None:
             "this fails loudly instead of silently falling back to bm25."
         ),
     )
+    parser.add_argument(
+        "--dense-weight",
+        type=float,
+        default=1.0,
+        help=(
+            "Weight for the dense retriever in hybrid RRF (BM25 fixed at 1.0). "
+            "Default 1.0 = equal-weight RRF (Phase 2 behavior). Lower it (e.g. "
+            "0.3-0.5) to reduce dense's noisy article-level influence. "
+            "Only meaningful with --retriever hybrid."
+        ),
+    )
     args = parser.parse_args()
 
     start_time = time.time()
@@ -92,6 +103,7 @@ def main() -> None:
         top_k_final=TOP_K_FINAL,
         dense_retriever=dense_retriever,
         rrf_k=RRF_K,
+        dense_weight=args.dense_weight,
     )
 
     print("Validating results.json (format + citation correctness)...")
@@ -116,6 +128,7 @@ def main() -> None:
         "top_k_retrieve": TOP_K_RETRIEVE,
         "top_k_final": TOP_K_FINAL,
         "rrf_k": RRF_K if args.retriever == "hybrid" else None,
+        "dense_weight": args.dense_weight if args.retriever == "hybrid" else None,
         "embedding_model": embedding_model_name,
         "corpus_summary": corpus_summary,
         "elapsed_seconds": round(elapsed, 1),

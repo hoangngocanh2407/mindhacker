@@ -116,6 +116,25 @@ def test_run_pipeline_fuses_dense_results_when_dense_retriever_given(tmp_path):
     assert "A|Doc A|Điều 1" in entries[0]["relevant_articles"]
 
 
+def test_run_pipeline_accepts_dense_weight_and_produces_valid_entries(tmp_path):
+    questions = [{"id": 1, "question": "Hợp đồng lao động xử lý vi phạm kỷ luật như thế nào?"}]
+    q_path = tmp_path / "questions.json"
+    c_path = tmp_path / "corpus.json"
+    out_path = tmp_path / "results.json"
+    q_path.write_text(json.dumps(questions, ensure_ascii=False), encoding="utf-8")
+    c_path.write_text(json.dumps(CORPUS, ensure_ascii=False), encoding="utf-8")
+
+    stub_dense = _StubDenseRetriever([CORPUS[0]])
+
+    entries = run_pipeline(
+        str(q_path), str(c_path), str(out_path), top_k_retrieve=2, top_k_final=2,
+        dense_retriever=stub_dense, dense_weight=0.0,
+    )
+
+    assert len(entries) == 1
+    assert validate_entry(entries[0]) == []
+
+
 class _StubBatchDenseRetriever:
     """Duck-types a DenseRetriever that also supports batch_search(), to
     verify run_pipeline prefers the batch path when available."""

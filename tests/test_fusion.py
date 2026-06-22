@@ -1,3 +1,5 @@
+import pytest
+
 from src.fusion import reciprocal_rank_fusion
 
 ARTICLE_A = {"relevant_article_tag": "A|Doc A|Điều 1", "doc_name": "Doc A"}
@@ -36,3 +38,45 @@ def test_fusion_result_includes_fused_score():
 
 def test_fusion_handles_empty_lists():
     assert reciprocal_rank_fusion([[], []], top_k=5) == []
+
+
+def test_fusion_weight_zero_for_dense_excludes_dense_only_article():
+    # weights=[1.0, 0.0]: list 2 (dense) contributes nothing, so a dense-only
+    # article scores 0 and a bm25-only article ranks above it.
+    bm25_results = [ARTICLE_B]   # bm25-only
+    dense_results = [ARTICLE_A]  # dense-only
+    fused = reciprocal_rank_fusion(
+        [bm25_results, dense_results], top_k=5, weights=[1.0, 0.0]
+    )
+    assert fused[0]["relevant_article_tag"] == "B|Doc B|Điều 2"
+    assert fused[-1]["relevant_article_tag"] == "A|Doc A|Điều 1"
+    assert fused[-1]["fused_score"] == 0.0
+
+
+def test_fusion_weight_flips_winner_between_sources():
+    bm25_results = [ARTICLE_B]   # bm25-only
+    dense_results = [ARTICLE_A]  # dense-only
+    # Favor dense → dense-only article wins.
+    fused = reciprocal_rank_fusion(
+        [bm25_results, dense_results], top_k=5, weights=[0.0, 1.0]
+    )
+    assert fused[0]["relevant_article_tag"] == "A|Doc A|Điều 1"
+
+
+def test_fusion_weights_none_matches_explicit_equal_weights():
+    bm25_results = [ARTICLE_B, ARTICLE_A]
+    dense_results = [ARTICLE_A, ARTICLE_C]
+    default = reciprocal_rank_fusion([bm25_results, dense_results], top_k=3)
+    explicit = reciprocal_rank_fusion(
+        [bm25_results, dense_results], top_k=3, weights=[1.0, 1.0]
+    )
+    assert [r["relevant_article_tag"] for r in default] == [
+        r["relevant_article_tag"] for r in explicit
+    ]
+    for d, e in zip(default, explicit):
+        assert d["fused_score"] == e["fused_score"]
+
+
+def test_fusion_raises_when_weights_length_mismatches():
+    with pytest.raises(ValueError, match="weights length"):
+        reciprocal_rank_fusion([[ARTICLE_A], [ARTICLE_B]], weights=[1.0])

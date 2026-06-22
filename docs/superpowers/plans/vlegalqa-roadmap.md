@@ -15,9 +15,11 @@
 |---|---|---|
 | 1 | BM25 baseline + export/validate + zip | ✅ Done, đã nộp thật (F2=0.1609) |
 | 2 | Dense embedding retrieval + RRF fusion với BM25, hardening (cache, mode tách rời) | ✅ Done, đã nộp thật — hybrid tệ hơn BM25 ở ARTICLES, **BM25-only là default**, hybrid giữ làm experimental |
-| 3 | Bộ eval nội bộ (hand-label) + sweep tham số tuning (rrf weight, top_k...) | ⏸ Deferred — ưu tiên hoàn thiện pipeline vận hành trước |
-| 4 | Answer generation bằng LLM mở (≤14B) thay template | ⬜ Chưa làm |
-| 5 | Chiến lược nộp bài cuối + working notes | ⬜ Chưa làm |
+| 3 | Weighted RRF — hạ trọng số dense để bớt nhiễu cấp điều luật (`--dense-weight`) | ✅ Done + đã nộp — **KHÔNG cải thiện ARTICLES_F2, BM25-only vẫn tốt nhất (0.1609)**. Code giữ lại, dừng tune dense weight |
+| 4 | Query processing (chuẩn hóa viết tắt DNNVV/BHXH, mở rộng synonym) | ⬜ Chưa làm |
+| 5 | Answer generation bằng LLM mở (≤14B) + answer validation chống hallucination | ⬜ Chưa làm |
+| — | ~~Bộ eval nội bộ (hand-label)~~ | ❌ CUT — không có thời gian/khả năng gán nhãn tay; đo qua leaderboard thay thế |
+| — | Cross-encoder reranker, chunking điều luật dài | 🔜 Backlog — cần GPU mạnh hơn (máy hiện MX450 2GB + torch CPU-only) |
 
 ---
 
@@ -50,43 +52,52 @@
 
 ---
 
-## Phase 3 — Bộ eval nội bộ + Tuning (DEFERRED — để sau)
+## Phase 3 — Weighted RRF (CODE DONE, CHƯA NỘP)
 
-> **Tạm để sau theo yêu cầu 2026-06-22:** ưu tiên hiện tại là hoàn thiện pipeline vận hành sạch (BM25 default, hybrid experimental, cache, output tách mode — đã xong ở Phase 2). Eval set quay lại làm khi pipeline đã ổn định và cần tune tham số (rrf weight, top_k...) một cách có đo lường, thay vì dò trên leaderboard.
+**Mục tiêu:** Sửa đúng root cause Phase 2 (dense nhiễu cấp điều luật, RRF cho dense trọng số ngang BM25) bằng cách thêm trọng số riêng cho dense trong fusion, hạ ảnh hưởng của dense xuống. Rẻ nhất, không model mới, chạy gần như tức thì (embedding đã cache).
 
-**Mục tiêu:** Đo được P/R/F2 trên máy local mà không cần nộp bài, để sweep các tham số trong [future_tuning_parameters.md](../future_tuning_parameters.md) (top_k_retrieve, top_k_final, rrf_k, weighted fusion, tokenizer...) trước khi quyết định cấu hình nào đáng nộp thật.
+**Báo cáo chi tiết:** [docs/reports/phase3_report.md](../reports/phase3_report.md)
 
-**Phạm vi dự kiến (sẽ viết implementation plan riêng khi bắt đầu):**
-1. Lấy mẫu ~50–80 câu từ `R2AIStage1DATA.json`, ưu tiên câu có vẻ map rõ tới 1-2 văn bản cụ thể (ví dụ nhắc rõ "Luật Hỗ trợ DNNVV", "Nghị định 80/2021/NĐ-CP"...).
-2. Gán nhãn tay `relevant_articles` đúng cho từng câu (cần đọc thật văn bản luật trong `vbpl_dat.json` để xác nhận) — đây là việc cần người làm, không tự động hoá hoàn toàn được.
-3. Viết script tính P/R/F2-macro đúng công thức quy chế (F2 = 5PR/(4P+R)) trên bộ nhãn này, nhận một `results.json` (hoặc list kết quả) làm input.
-4. Dùng script đó để so sánh: Phase 1 (BM25-only) vs Phase 2 (BM25+dense) vs các biến thể tham số khác nhau.
-5. Chốt cấu hình tốt nhất theo eval nội bộ trước khi nộp thật lên leaderboard.
+**Đã làm:**
+- `src/fusion.py::reciprocal_rank_fusion()` thêm tham số `weights` (mặc định None = trọng số ngang, không đổi hành vi cũ).
+- `run_pipeline()` thêm `dense_weight=1.0` (BM25 cố định 1.0).
+- `scripts/build_submission.py --retriever hybrid --dense-weight <float>` (mặc định 1.0), `run_meta.json` ghi lại `dense_weight`.
+- 55/55 test pass. Chạy thật: w=0.3 đổi ranking ở 1822/2000 câu so với w=1.0; eyeball xác nhận đẩy được điều lạc đề từ dense (vd Luật Cạnh tranh) ra khỏi top-5 cho câu hỏi SME.
 
-**Phụ thuộc:** không phụ thuộc code Phase 1/2 thay đổi gì, chỉ cần `run_pipeline()` đã có (đã có từ Phase 1/2).
-
-**Rủi ro đã biết:** gán nhãn tay 50-80 câu cần thời gian đọc luật, không thể làm hộ hoàn toàn nếu không có chuyên môn pháp lý xác nhận — cần bạn tham gia trực tiếp ở bước này.
+**Cách đo:** nộp `submission/hybrid/submission.zip` với vài giá trị `--dense-weight` (1.0, 0.5, 0.3...) lên leaderboard, so điểm với baseline BM25 0.1609. Việc nộp do người dùng tự làm.
 
 ---
 
-## Phase 4 — Answer Generation bằng LLM mở (CHƯA LÀM)
+## Phase 4 — Query Processing (CHƯA LÀM)
 
-**Mục tiêu:** Thay `generate_answer()` template bằng LLM mở ≤14B sinh câu trả lời tự nhiên hơn, vẫn bắt buộc bám sát điều luật retrieval được và trích đúng "Điều X" (để không phá `validate_entry()` hiện có). Nhắm tới cải thiện 4 nhóm QA hiện đang 0.0 (đặc biệt 3 nhóm LLM-judge: đầy đủ, thực tiễn, rõ ràng).
+**Mục tiêu:** Chuẩn hóa/mở rộng câu hỏi trước khi retrieval để tăng khớp BM25 — chuẩn hóa từ viết tắt (DNNVV → "doanh nghiệp nhỏ và vừa", BHXH → "bảo hiểm xã hội"...), mở rộng synonym (hỗ trợ/ưu đãi...). Nhẹ, không cần model.
+
+**Phạm vi dự kiến (sẽ brainstorm + viết plan riêng khi bắt đầu):**
+1. Xây bảng ánh xạ viết tắt/synonym thủ công cho domain pháp luật SME.
+2. Một bước tiền xử lý query áp trước khi đưa vào BM25 (và dense), giữ nguyên `id` và output schema.
+3. Đo bằng leaderboard như Phase 3.
+
+**Phụ thuộc:** không, độc lập với Phase 3.
+
+---
+
+## Phase 5 — LLM Answer Generation + Validation (CHƯA LÀM)
+
+**Mục tiêu:** Thay `generate_answer()` template bằng LLM mở ≤14B sinh câu trả lời rõ ràng/đầy đủ hơn từ top articles, vẫn bắt buộc trích đúng "Điều X" và **chống hallucination** (không cho LLM bịa luật ngoài context). Nhắm cải thiện 4 nhóm QA hiện đang 0.0.
 
 **Phạm vi dự kiến:**
-1. Chọn model cụ thể (ứng viên: dòng Qwen3 4B/8B) — phải tự xác nhận lại ngày phát hành chính xác trên HuggingFace trước khi chốt dùng, đảm bảo trước 1/3/2026 và ≤14B tham số, license cho phép.
-2. Viết prompt ép buộc: chỉ dùng thông tin từ điều luật được cấp, trích "Điều X" đúng văn bản, từ chối/nói rõ giới hạn nếu không có điều luật đủ liên quan.
-3. Thay thế lời gọi `generate_answer()` trong `src/export.py`/`build_result_entry()` bằng lời gọi LLM, giữ nguyên interface (vẫn trả về string).
-4. Re-run `validate_entry()`/`validate_results()` không đổi — phải tiếp tục pass citation check.
-5. Đo lại trên bộ eval nội bộ (Phase 3) cả về citation accuracy và (nếu có thể tự đánh giá thô) độ rõ ràng/đầy đủ.
+1. Chọn model (ứng viên: Qwen3 4B/8B) — tự xác nhận ngày phát hành trên HuggingFace (trước 1/3/2026), ≤14B, license cho phép. **Lưu ý GPU:** máy hiện MX450 2GB không chạy nổi LLM cỡ này — cần cân nhắc chạy trên máy/GPU khác hoặc quantization, xác định trước khi bắt đầu.
+2. Prompt ép buộc: chỉ dùng điều luật được cấp, trích "Điều X" đúng văn bản, nói rõ giới hạn nếu không đủ căn cứ.
+3. Thay lời gọi `generate_answer()` trong `build_result_entry()`, giữ nguyên interface (trả về string).
+4. Answer validation: `validate_entry()` citation check không đổi phải tiếp tục pass; thêm kiểm tra answer không trích điều luật ngoài `relevant_articles` (chống bịa).
 
-**Phụ thuộc:** cần Phase 3 (eval set) tồn tại để đo hiệu quả, không bắt buộc nhưng nên làm sau Phase 3.
+**Phụ thuộc:** nên làm sau khi retrieval đã ổn (Phase 3/4), vì câu trả lời tốt chỉ có nghĩa khi retrieval đúng.
 
-**Lưu ý quy chế:** ghi rõ nguồn, link HuggingFace, ngày phát hành của model dùng — bắt buộc cho working notes (Phase 5).
+**Lưu ý quy chế:** ghi rõ nguồn, link HuggingFace, ngày phát hành model — bắt buộc cho working notes (Phase 6).
 
 ---
 
-## Phase 5 — Chiến lược nộp bài cuối + Working Notes (CHƯA LÀM)
+## Phase 6 — Chiến lược nộp bài cuối + Working Notes (CHƯA LÀM)
 
 **Mục tiêu:** Chốt bài nộp tốt nhất trước hạn 2026-06-30 23:59, và hoàn thiện working notes paper bắt buộc của cuộc thi.
 
@@ -96,7 +107,14 @@
 3. Viết working notes: nguồn/phiên bản văn bản luật ngoài `vbpl_dat.json` (nếu có bổ sung), tên đầy đủ + link HuggingFace + ngày phát hành của mọi model dùng (embedding Phase 2, LLM Phase 4), mô tả pipeline đủ chi tiết để tái lập.
 4. Quyết định bài nộp nào là bài "đẩy" chính thức.
 
-**Phụ thuộc:** cần Phase 4 hoàn thành (hoặc quyết định dừng ở Phase 2/3 nếu hết thời gian) trước khi chốt bài nộp cuối.
+**Phụ thuộc:** cần Phase 5 hoàn thành (hoặc quyết định dừng sớm hơn nếu hết thời gian) trước khi chốt bài nộp cuối.
+
+---
+
+## Backlog (để sau — cần GPU mạnh hơn / nhiều thời gian)
+
+- **Cross-encoder reranker** (`BAAI/bge-reranker-v2-m3`): BM25/dense lấy candidate pool, reranker chọn lại top điều luật — hướng mạnh nhất để tăng ARTICLES_F2. **Hoãn vì:** rerank ~80k cặp (câu hỏi, điều luật) trên máy hiện tại (MX450 2GB, torch CPU-only) là không khả thi về thời gian. Cần GPU mạnh hơn.
+- **Chunking điều luật dài:** chia điều luật dài (tới ~245k ký tự) thành đoạn nhỏ để dense/reranker không chỉ "đọc" phần đầu. Phụ thuộc quyết định reranker. Tốn công remap chunk → article gốc khi export.
 
 ---
 

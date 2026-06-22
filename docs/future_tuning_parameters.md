@@ -12,13 +12,12 @@ Context for current numbers:
 - **`top_k_final`** (currently 5) — how many articles actually go into `relevant_docs`/`relevant_articles` per question. Since IR is scored with F2 (recall weighted 2x precision), raising this to 8–10 trades precision for recall — worth a sweep once there's an eval set to measure the trade-off instead of guessing.
 - Note these two interact — sweep them together, not independently, since a wider `top_k_retrieve` only helps if `top_k_final` doesn't immediately cut it back down.
 
-## Fusion (RRF) — confirmed regression on ARTICLES, needs real fix before reuse
+## Fusion (RRF)
 
-- **`rrf_k`** (currently 60, the standard default) — controls how quickly rank position decays in the fusion score. Lower `k` rewards top ranks more aggressively; higher `k` flattens the contribution curve. Worth trying 10–100, but unlikely to fix the core problem below on its own.
-- **Weighted RRF instead of equal weighting** — confirmed root cause (see Phase 2 report) is that equal-weight RRF trusts dense's article-level ranking as much as BM25's, but dense is reliably weaker at article-level discrimination on this corpus. A weighted fusion (e.g. BM25 contributes more per rank than dense, or dense's contribution is scaled down by a confidence factor) is the most promising fix — needs the eval set to tune the weight properly, not leaderboard guessing.
-- **Document-level expansion instead of article-level fusion** — alternative architecture: use BM25 to pick the right document(s) first, then only let dense re-rank/expand *within* those documents' articles, instead of letting dense freely inject articles from documents BM25 didn't surface. Untried.
-- **Chunked dense embeddings** — combined with the chunking item below, embedding at the sub-article (chunk) level instead of whole-article level might give dense sharper article-level discrimination, since right now a whole long article's embedding can be dominated by boilerplate shared with neighboring articles in the same document. Untried, larger change (needs article_id remapping).
-- All three above are deferred until the eval set (currently also deferred, see Roadmap) exists — tuning RRF weights against the 50-question public leaderboard sample is too noisy and too expensive in submission slots to do blind.
+- **Weighted RRF — IMPLEMENTED (Phase 3).** `reciprocal_rank_fusion(..., weights=[...])` + `run_pipeline(..., dense_weight=...)` + `build_submission.py --dense-weight <float>`. BM25 fixed at 1.0, dense adjustable; default 1.0 = old equal-weight behavior. Confirmed root cause from Phase 2 (equal-weight RRF trusts dense's noisy article-level ranking as much as BM25). Tune the actual value (try 0.3–0.5) by submitting to leaderboard — no internal eval set (cut). See [reports/phase3_report.md](reports/phase3_report.md).
+- **`rrf_k`** (currently 60, the standard default) — controls how quickly rank position decays. Lower `k` rewards top ranks more aggressively; higher `k` flattens. Worth trying 10–100 in combination with dense_weight, but second-order vs the weight itself.
+- **Document-level expansion instead of article-level fusion** — alternative architecture: use BM25 to pick the right document(s) first, then only let dense re-rank/expand *within* those documents' articles, instead of letting dense freely inject articles from documents BM25 didn't surface. Untried, bigger change than weighted RRF.
+- **Chunked dense embeddings** — see Chunking section / Backlog in roadmap; embedding at sub-article level might sharpen dense's article-level discrimination. Untried, needs article_id remapping.
 
 ## Tokenization (BM25)
 
