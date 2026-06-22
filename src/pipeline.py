@@ -3,7 +3,7 @@ import json
 from src.export import build_result_entry, write_results
 from src.fusion import reciprocal_rank_fusion
 from src.query_processing import expand_query
-from src.retrieval import BM25Retriever
+from src.retrieval import BM25Retriever, segment_tokenize, tokenize
 
 QUESTION_TEXT_KEYS = ("question", "query", "question_text", "content")
 
@@ -32,6 +32,7 @@ def run_pipeline(
     rrf_k: int = 60,
     dense_weight: float = 1.0,
     expand_abbreviations: bool = False,
+    use_segmentation: bool = False,
 ) -> list[dict]:
     """If `dense_retriever` is given (any object with a `.search(query, top_k)`
     method returning the same shape as BM25Retriever.search), its results are
@@ -51,13 +52,18 @@ def run_pipeline(
     question (TNHH, GTGT...) are expanded to their full form before retrieval,
     applied once to the shared query text fed to both BM25 and dense. Default
     False = no expansion (unchanged behavior).
+
+    `use_segmentation`: if True, BM25 (index + query) uses the Vietnamese
+    word-segmenting tokenizer instead of the plain regex one. Affects BM25
+    only — dense uses its own subword tokenizer. Default False.
     """
     questions = _load_json(questions_path)
     if limit is not None:
         questions = questions[:limit]
 
     corpus = _load_json(clean_corpus_path)
-    bm25_retriever = BM25Retriever(corpus)
+    bm25_tokenizer = segment_tokenize if use_segmentation else tokenize
+    bm25_retriever = BM25Retriever(corpus, tokenizer=bm25_tokenizer)
     query_texts = [get_question_text(question) for question in questions]
     if expand_abbreviations:
         query_texts = [expand_query(text) for text in query_texts]

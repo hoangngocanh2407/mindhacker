@@ -86,12 +86,24 @@ def main() -> None:
             "retrieve depth (%d), the retrieve depth is raised to match." % TOP_K_RETRIEVE
         ),
     )
+    parser.add_argument(
+        "--segment",
+        action="store_true",
+        help=(
+            "Use Vietnamese word segmentation (pyvi) for the BM25 tokenizer so "
+            "multi-word legal terms ('doanh nghiệp nhỏ và vừa') index/match as "
+            "compound tokens. BM25 only (dense unaffected). Default off; A/B it "
+            "on the leaderboard. Requires pyvi (see requirements.txt)."
+        ),
+    )
     args = parser.parse_args()
 
     top_k_final = args.top_k_final
     top_k_retrieve = max(TOP_K_RETRIEVE, top_k_final)
 
-    slug = run_slug(args.retriever, top_k_final, args.dense_weight, args.expand_query)
+    slug = run_slug(
+        args.retriever, top_k_final, args.dense_weight, args.expand_query, args.segment
+    )
     start_time = time.time()
     out_dir, results_path, zip_path, run_meta_path = _output_paths(slug)
     os.makedirs(out_dir, exist_ok=True)
@@ -132,6 +144,7 @@ def main() -> None:
         rrf_k=RRF_K,
         dense_weight=args.dense_weight,
         expand_abbreviations=args.expand_query,
+        use_segmentation=args.segment,
     )
 
     print("Validating results.json (format + citation correctness)...")
@@ -159,6 +172,7 @@ def main() -> None:
         "rrf_k": RRF_K if args.retriever == "hybrid" else None,
         "dense_weight": args.dense_weight if args.retriever == "hybrid" else None,
         "expand_query": args.expand_query,
+        "segment": args.segment,
         "embedding_model": embedding_model_name,
         "corpus_summary": corpus_summary,
         "elapsed_seconds": round(elapsed, 1),

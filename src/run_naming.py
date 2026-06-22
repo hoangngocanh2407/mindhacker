@@ -13,10 +13,13 @@ def run_slug(
     top_k_final: int,
     dense_weight: float = 1.0,
     expand_query: bool = False,
+    segment: bool = False,
 ) -> str:
     parts = [mode, f"kf{top_k_final}"]
     if mode == "hybrid":
         parts.append(f"dw{dense_weight}")
     if expand_query:
         parts.append("expand")
+    if segment:
+        parts.append("seg")
     return "_".join(parts)

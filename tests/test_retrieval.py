@@ -1,4 +1,4 @@
-from src.retrieval import BM25Retriever, tokenize
+from src.retrieval import BM25Retriever, segment_tokenize, tokenize
 
 TEXT_MATCH_CORPUS = [
     {
@@ -91,3 +91,17 @@ def test_search_matches_via_article_id_when_body_text_does_not_contain_it():
     retriever = BM25Retriever(ARTICLE_ID_MATCH_CORPUS)
     results = retriever.search("Điều 4", top_k=1)
     assert results[0]["relevant_article_tag"] == "59/2020/QH14|Luật Doanh nghiệp 59/2020/QH14|Điều 4"
+
+
+def test_segment_tokenize_produces_compound_tokens():
+    tokens = segment_tokenize("doanh nghiệp nhỏ và vừa")
+    # pyvi joins the compound "doanh nghiệp" into one underscore token.
+    assert "doanh_nghiệp" in tokens
+    # the plain regex tokenizer would NOT produce that compound
+    assert "doanh_nghiệp" not in tokenize("doanh nghiệp nhỏ và vừa")
+
+
+def test_bm25_retriever_accepts_custom_tokenizer():
+    retriever = BM25Retriever(TEXT_MATCH_CORPUS, tokenizer=segment_tokenize)
+    results = retriever.search("ưu đãi thuế khi tham gia đấu thầu cho doanh nghiệp", top_k=1)
+    assert results[0]["relevant_article_tag"] == "A|Doc A|Điều 1"

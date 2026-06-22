@@ -208,6 +208,24 @@ def test_run_pipeline_respects_limit(tmp_path):
     assert entries[0]["id"] == 1
 
 
+def test_run_pipeline_with_segmentation_produces_valid_entries(tmp_path):
+    questions = [{"id": 1, "question": "Doanh nghiệp nhỏ và vừa được ưu đãi gì khi đấu thầu?"}]
+    q_path = tmp_path / "questions.json"
+    c_path = tmp_path / "corpus.json"
+    out_path = tmp_path / "results.json"
+    q_path.write_text(json.dumps(questions, ensure_ascii=False), encoding="utf-8")
+    c_path.write_text(json.dumps(CORPUS, ensure_ascii=False), encoding="utf-8")
+
+    entries = run_pipeline(
+        str(q_path), str(c_path), str(out_path), top_k_retrieve=2, top_k_final=1,
+        use_segmentation=True,
+    )
+
+    assert len(entries) == 1
+    assert validate_entry(entries[0]) == []
+    assert entries[0]["relevant_articles"] == ["A|Doc A|Điều 1"]
+
+
 def test_run_pipeline_with_abbreviation_expansion_matches_via_full_form(tmp_path):
     # Question uses "DNNVV"; corpus article uses the full form only. Without
     # expansion BM25 can't match; with expansion it should retrieve Doc A.

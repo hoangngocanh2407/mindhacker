@@ -22,12 +22,21 @@ def test_slug_bm25_omits_dense_weight():
     assert "dw" not in run_slug("bm25", 5, dense_weight=0.3)
 
 
+def test_slug_includes_segment_marker():
+    assert run_slug("bm25", 3, segment=True) == "bm25_kf3_seg"
+
+
+def test_slug_expand_and_segment_combined():
+    assert run_slug("bm25", 3, expand_query=True, segment=True) == "bm25_kf3_expand_seg"
+
+
 def test_distinct_configs_produce_distinct_slugs():
     slugs = {
         run_slug("bm25", 5),
         run_slug("bm25", 10),
         run_slug("bm25", 5, expand_query=True),
+        run_slug("bm25", 5, segment=True),
         run_slug("hybrid", 5, dense_weight=0.3),
         run_slug("hybrid", 5, dense_weight=1.0),
     }
-    assert len(slugs) == 5
+    assert len(slugs) == 6

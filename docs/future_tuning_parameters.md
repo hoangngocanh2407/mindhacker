@@ -39,8 +39,9 @@ Context for current numbers:
 
 ## Tokenization (BM25)
 
-- Current tokenizer is plain regex (`\w+` + lowercase), no Vietnamese word segmentation. Legal compound terms like "doanh nghiệp nhỏ và vừa" are tokenized word-by-word, not as a phrase — a real Vietnamese segmenter (e.g. `pyvi`, `underthesea`) could meaningfully change BM25 term-matching behavior. Untested whether it helps or hurts on this domain.
-- Stopword removal — not done. Could reduce noise in BM25 scoring but risks dropping legally meaningful short words (e.g. "và", "hoặc" rarely matter, but legal connector words sometimes do).
+- **Vietnamese word segmentation — IMPLEMENTED.** `src/retrieval.segment_tokenize` (pyvi `ViTokenizer`) joins compounds with underscores ("doanh nghiệp" → "doanh_nghiệp") so multi-word legal terms become single BM25 tokens. Enable via `run_pipeline(use_segmentation=True)` / `build_submission.py --segment`. BM25 only (dense unaffected). Default off. De-risked: pyvi installs cleanly on Win/Py3.13 (wheel, no compiler), segments full corpus in ~0.6 min. **Effect is broad: changes top-3 on 1829/2000 questions (91%) vs the plain tokenizer** — high potential to move the score either way; A/B on leaderboard (`bm25_kf3_seg` built, awaiting submission).
+- Stopword removal — not done. Could reduce noise but risks dropping legally meaningful short words. Untried.
+- BM25 hyperparameters (k1, b) — untried. With extreme doc-length variance (51 to 245k chars), length-normalization `b` could matter.
 
 ## Chunking
 
