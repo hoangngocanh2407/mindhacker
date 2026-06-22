@@ -72,12 +72,16 @@ So sánh BM25-only / Dense-only / Fusion trên cùng câu hỏi thật (xem log 
 
 ### Đo thời gian hybrid với cache
 
-| Lần chạy | Trạng thái cache | Thời gian |
-|---|---|---|
-| Lần 1 (`build_submission.py --retriever hybrid`) | Cache MISS — encode corpus từ đầu | 1644.3s (~27.4 phút) |
-| Lần 2 (chạy lại, không đổi corpus) | Cache HIT — load từ đĩa | 394.5s (~6.6 phút) |
+| Lần chạy | Trạng thái cache | Query encoding | Thời gian |
+|---|---|---|---|
+| Lần 1 | Cache MISS — encode corpus từ đầu | per-query (loop) | 1644.3s (~27.4 phút) |
+| Lần 2 | Cache HIT — load từ đĩa | per-query (loop) | 394.5s (~6.6 phút) |
+| Lần 3 (sau khi thêm `batch_search`) | Cache HIT | **batch** (1 lệnh `.encode()` cho 2000 câu) | 271.1s (~4.5 phút) |
+| Lần 4 (chạy lại, kiểm chứng nhất quán) | Cache HIT | batch | 272.5s (~4.5 phút) |
 
-Cache giảm thời gian chạy hybrid ~4.2x. Phần thời gian còn lại (394.5s) chủ yếu do encode 2000 câu hỏi (mỗi câu gọi `.encode()` riêng, chưa batch) + BM25 scoring trên 2000 câu — tối ưu thêm (batch encode query) được ghi vào future tuning, không nằm trong phạm vi patch này.
+Cache (Lần 1→2) giảm ~4.2x. Thêm `batch_search()` (Lần 2→3) giảm tiếp ~31% (394.5s→271.1s) bằng cách gọi `SentenceTransformer.encode()` một lần cho toàn bộ 2000 câu hỏi (tính similarity dạng ma trận `query_embeddings @ corpus_embeddings.T`) thay vì 2000 lệnh `.encode()` riêng lẻ trong loop. `run_pipeline()` tự phát hiện `dense_retriever` có `batch_search` hay không (`hasattr`) và ưu tiên dùng batch nếu có — không đổi công thức RRF, không đổi answer generation, không đổi output schema. Phần thời gian còn lại (~271s) phần lớn là BM25 scoring cho 2000 câu (so sánh: BM25-only mất ~105-112s) cộng overhead encode batch + validate + zip.
+
+**Đảm bảo không đổi ranking:** `tests/test_dense_retrieval.py::test_batch_search_matches_per_query_search_exactly` so sánh trực tiếp kết quả `search()` từng câu vs `batch_search()` cho cùng query set bằng stub encoder (không cần model thật) — khẳng định cùng thứ tự xếp hạng, cùng điểm số (sai số < 1e-6).
 
 ## Việc còn thiếu / future work (xem [future_tuning_parameters.md](../future_tuning_parameters.md))
 
@@ -85,4 +89,6 @@ Cache giảm thời gian chạy hybrid ~4.2x. Phần thời gian còn lại (394
 - **Weighted RRF** (không cho Dense trọng số ngang BM25) — hướng sửa khả thi nhất cho root cause trên, cần eval set để tune đúng, không dò trên leaderboard.
 - **Document-level expansion thay vì article-level fusion** — ví dụ dùng Dense chỉ để mở rộng/ưu tiên trong phạm vi văn bản mà BM25 đã chọn đúng, không cho Dense tự do chọn điều.
 - **Chunking cho Dense** — bài luật dài bị truncate tự động khi encode, chưa xử lý.
-- **Batch encode query** trong `DenseRetriever.search()` — hiện encode từng câu hỏi một, có thể chậm hơn cần thiết khi chạy 2000 câu.
+- ~~Batch encode query trong `DenseRetriever.search()`~~ — **đã làm** (`batch_search()`, xem "Đo thời gian hybrid với cache" trên), giảm thời gian hybrid cache-hit từ 394.5s → 271.1s.
+- **Query embedding cache** (cache theo hash câu hỏi + model_name + top_k) — chưa làm, để sau vì `batch_search()` đã giải quyết phần lớn overhead; chỉ đáng làm thêm nếu cần chạy lại nhiều lần với cùng bộ câu hỏi và muốn bỏ qua luôn cả bước encode batch.
+- BM25 scoring cho 2000 câu (~105-112s) hiện chiếm phần lớn thời gian còn lại của cả 2 mode — chưa tối ưu (rank_bm25 thuần Python, không vectorized).

@@ -116,6 +116,49 @@ def test_run_pipeline_fuses_dense_results_when_dense_retriever_given(tmp_path):
     assert "A|Doc A|Điều 1" in entries[0]["relevant_articles"]
 
 
+class _StubBatchDenseRetriever:
+    """Duck-types a DenseRetriever that also supports batch_search(), to
+    verify run_pipeline prefers the batch path when available."""
+
+    def __init__(self, fixed_results: list[dict]):
+        self._fixed_results = fixed_results
+        self.search_calls = 0
+        self.batch_search_calls = 0
+
+    def search(self, query: str, top_k: int = 15) -> list[dict]:
+        self.search_calls += 1
+        return self._fixed_results[:top_k]
+
+    def batch_search(self, queries: list[str], top_k: int = 15) -> list[list[dict]]:
+        self.batch_search_calls += 1
+        return [self._fixed_results[:top_k] for _ in queries]
+
+
+def test_run_pipeline_uses_batch_search_when_dense_retriever_supports_it(tmp_path):
+    questions = [
+        {"id": 1, "question": "Hợp đồng lao động xử lý vi phạm kỷ luật như thế nào?"},
+        {"id": 2, "question": "Ưu đãi thuế cho doanh nghiệp nhỏ và vừa khi đấu thầu là gì?"},
+    ]
+    q_path = tmp_path / "questions.json"
+    c_path = tmp_path / "corpus.json"
+    out_path = tmp_path / "results.json"
+    q_path.write_text(json.dumps(questions, ensure_ascii=False), encoding="utf-8")
+    c_path.write_text(json.dumps(CORPUS, ensure_ascii=False), encoding="utf-8")
+
+    stub_dense = _StubBatchDenseRetriever([CORPUS[0]])
+
+    entries = run_pipeline(
+        str(q_path), str(c_path), str(out_path), top_k_retrieve=2, top_k_final=2,
+        dense_retriever=stub_dense,
+    )
+
+    assert len(entries) == 2
+    assert stub_dense.batch_search_calls == 1
+    assert stub_dense.search_calls == 0
+    for entry in entries:
+        assert validate_entry(entry) == []
+
+
 def test_run_pipeline_without_dense_retriever_matches_phase1_bm25_only_behavior(tmp_path):
     questions = [{"id": 1, "question": "Ưu đãi thuế cho doanh nghiệp nhỏ và vừa khi đấu thầu là gì?"}]
     q_path = tmp_path / "questions.json"

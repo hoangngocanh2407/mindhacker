@@ -34,6 +34,12 @@ def run_pipeline(
     method returning the same shape as BM25Retriever.search), its results are
     fused with BM25 via Reciprocal Rank Fusion. If omitted, behavior is
     identical to Phase 1 — BM25-only retrieval.
+
+    If `dense_retriever` also exposes `.batch_search(queries, top_k)`, it is
+    used to encode/score all questions in one batch instead of one
+    `.search()` call per question — pure speed optimization, same ranking
+    (see tests/test_dense_retrieval.py for the equivalence check), no change
+    to fusion or output.
     """
     questions = _load_json(questions_path)
     if limit is not None:
@@ -41,14 +47,22 @@ def run_pipeline(
 
     corpus = _load_json(clean_corpus_path)
     bm25_retriever = BM25Retriever(corpus)
+    query_texts = [get_question_text(question) for question in questions]
+
+    dense_results_by_index = None
+    if dense_retriever is not None and hasattr(dense_retriever, "batch_search"):
+        dense_results_by_index = dense_retriever.batch_search(query_texts, top_k=top_k_retrieve)
 
     entries = []
-    for question in questions:
-        query = get_question_text(question)
+    for index, question in enumerate(questions):
+        query = query_texts[index]
         bm25_results = bm25_retriever.search(query, top_k=top_k_retrieve)
 
         if dense_retriever is not None:
-            dense_results = dense_retriever.search(query, top_k=top_k_retrieve)
+            if dense_results_by_index is not None:
+                dense_results = dense_results_by_index[index]
+            else:
+                dense_results = dense_retriever.search(query, top_k=top_k_retrieve)
             top_articles = reciprocal_rank_fusion(
                 [bm25_results, dense_results], k=rrf_k, top_k=top_k_retrieve
             )

@@ -27,9 +27,14 @@ class DenseRetriever:
         model_name: str = EMBEDDING_MODEL_NAME,
         cache_embeddings_path: str | None = None,
         cache_meta_path: str | None = None,
+        model=None,
     ):
+        """`model` is an injection point for tests: any object exposing
+        `.encode(texts, normalize_embeddings=True, show_progress_bar=False)`
+        can be passed in to avoid loading the real (network-dependent)
+        SentenceTransformer model. Production code never passes it."""
         self.corpus = corpus
-        self._model = SentenceTransformer(model_name)
+        self._model = model if model is not None else SentenceTransformer(model_name)
         texts = [searchable_text(record) for record in corpus]
 
         cached = None
@@ -63,6 +68,37 @@ class DenseRetriever:
         )
         scores = self._embeddings @ query_embedding
         ranked_indices = np.argsort(-scores)[:top_k]
+        return self._records_for(scores, ranked_indices)
+
+    def batch_search(self, queries: list[str], top_k: int = 15) -> list[list[dict]]:
+        """Same ranking as calling `search()` once per query, but encodes all
+        queries in a single SentenceTransformer batch call and scores them
+        against the corpus as one matrix multiply, instead of one query
+        embedding + one matrix-vector product per question. Pure speed
+        optimization — same similarity scores, same ranking, same output
+        shape as `search()`, just batched.
+        """
+        if not queries:
+            return []
+
+        query_embeddings = self._model.encode(
+            queries, normalize_embeddings=True, show_progress_bar=False
+        )
+        scores_matrix = query_embeddings @ self._embeddings.T  # (n_queries, n_corpus)
+
+        n_corpus = scores_matrix.shape[1]
+        k = min(top_k, n_corpus)
+        results = []
+        for scores in scores_matrix:
+            if k < n_corpus:
+                candidate_indices = np.argpartition(-scores, k - 1)[:k]
+            else:
+                candidate_indices = np.arange(n_corpus)
+            ranked_indices = candidate_indices[np.argsort(-scores[candidate_indices])]
+            results.append(self._records_for(scores, ranked_indices))
+        return results
+
+    def _records_for(self, scores: np.ndarray, ranked_indices: np.ndarray) -> list[dict]:
         results = []
         for idx in ranked_indices:
             record = dict(self.corpus[idx])

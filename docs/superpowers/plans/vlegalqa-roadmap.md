@@ -46,7 +46,7 @@
 - Output tách theo mode: `submission/bm25/` và `submission/hybrid/`, mỗi thư mục có `run_meta.json`.
 - `scripts/inspect_results.py` nhận `--results`/`--limit`, in thêm `question`.
 
-44/44 test pass sau patch.
+44/44 test pass sau patch hardening; sau khi thêm `batch_search()` tối ưu tốc độ dense (không đổi logic ranking/RRF/output) là 50/50.
 
 ---
 
