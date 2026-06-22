@@ -39,7 +39,7 @@ Context for current numbers:
 
 ## Tokenization (BM25)
 
-- **Vietnamese word segmentation — IMPLEMENTED.** `src/retrieval.segment_tokenize` (pyvi `ViTokenizer`) joins compounds with underscores ("doanh nghiệp" → "doanh_nghiệp") so multi-word legal terms become single BM25 tokens. Enable via `run_pipeline(use_segmentation=True)` / `build_submission.py --segment`. BM25 only (dense unaffected). Default off. De-risked: pyvi installs cleanly on Win/Py3.13 (wheel, no compiler), segments full corpus in ~0.6 min. **Effect is broad: changes top-3 on 1829/2000 questions (91%) vs the plain tokenizer** — high potential to move the score either way; A/B on leaderboard (`bm25_kf3_seg` built, awaiting submission).
+- **Vietnamese word segmentation — IMPLEMENTED, MEASURED: HURTS ARTICLES.** `src/retrieval.segment_tokenize` (pyvi `ViTokenizer`), enable via `--segment`. Leaderboard A/B (kf3): `ARTICLES_F2 0.1669 → 0.1278` (recall 0.20 → 0.148 — compound tokens match too strictly, body text phrases vary, word-level split gave more recall). **But DOCS_F2 0.1656 → 0.1864 (best DOCS seen)** — sharper compound matching helps document-level. Net: do NOT use for the ARTICLES-priority submission; could matter if final ranking weights DOCS. Code kept, default off.
 - Stopword removal — not done. Could reduce noise but risks dropping legally meaningful short words. Untried.
 - BM25 hyperparameters (k1, b) — untried. With extreme doc-length variance (51 to 245k chars), length-normalization `b` could matter.
 
