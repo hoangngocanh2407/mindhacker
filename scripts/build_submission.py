@@ -64,6 +64,16 @@ def main() -> None:
             "Only meaningful with --retriever hybrid."
         ),
     )
+    parser.add_argument(
+        "--expand-query",
+        action="store_true",
+        help=(
+            "Phase 4: expand legal abbreviations in each question (TNHH -> "
+            "trách nhiệm hữu hạn, etc.) before retrieval. Works with any "
+            "--retriever. Default off. Affects ~4%% of questions (those with "
+            "abbreviations); use to A/B against the plain run on the leaderboard."
+        ),
+    )
     args = parser.parse_args()
 
     start_time = time.time()
@@ -104,6 +114,7 @@ def main() -> None:
         dense_retriever=dense_retriever,
         rrf_k=RRF_K,
         dense_weight=args.dense_weight,
+        expand_abbreviations=args.expand_query,
     )
 
     print("Validating results.json (format + citation correctness)...")
@@ -129,6 +140,7 @@ def main() -> None:
         "top_k_final": TOP_K_FINAL,
         "rrf_k": RRF_K if args.retriever == "hybrid" else None,
         "dense_weight": args.dense_weight if args.retriever == "hybrid" else None,
+        "expand_query": args.expand_query,
         "embedding_model": embedding_model_name,
         "corpus_summary": corpus_summary,
         "elapsed_seconds": round(elapsed, 1),

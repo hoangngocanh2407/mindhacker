@@ -16,7 +16,7 @@
 | 1 | BM25 baseline + export/validate + zip | ✅ Done, đã nộp thật (F2=0.1609) |
 | 2 | Dense embedding retrieval + RRF fusion với BM25, hardening (cache, mode tách rời) | ✅ Done, đã nộp thật — hybrid tệ hơn BM25 ở ARTICLES, **BM25-only là default**, hybrid giữ làm experimental |
 | 3 | Weighted RRF — hạ trọng số dense để bớt nhiễu cấp điều luật (`--dense-weight`) | ✅ Done + đã nộp — **KHÔNG cải thiện ARTICLES_F2, BM25-only vẫn tốt nhất (0.1609)**. Code giữ lại, dừng tune dense weight |
-| 4 | Query processing (chuẩn hóa viết tắt DNNVV/BHXH, mở rộng synonym) | ⬜ Chưa làm |
+| 4 | Query processing — abbreviation expansion (`--expand-query`) | ✅ Done + nộp A/B — **trung tính trên gold-50 (điểm = BM25), không hại**. Giữ bật cho bài cuối. Synonym expansion đã loại |
 | 5 | Answer generation bằng LLM mở (≤14B) + answer validation chống hallucination | ⬜ Chưa làm |
 | — | ~~Bộ eval nội bộ (hand-label)~~ | ❌ CUT — không có thời gian/khả năng gán nhãn tay; đo qua leaderboard thay thế |
 | — | Cross-encoder reranker, chunking điều luật dài | 🔜 Backlog — cần GPU mạnh hơn (máy hiện MX450 2GB + torch CPU-only) |
@@ -68,16 +68,19 @@
 
 ---
 
-## Phase 4 — Query Processing (CHƯA LÀM)
+## Phase 4 — Query Abbreviation Expansion (CODE DONE, CHƯA NỘP)
 
-**Mục tiêu:** Chuẩn hóa/mở rộng câu hỏi trước khi retrieval để tăng khớp BM25 — chuẩn hóa từ viết tắt (DNNVV → "doanh nghiệp nhỏ và vừa", BHXH → "bảo hiểm xã hội"...), mở rộng synonym (hỗ trợ/ưu đãi...). Nhẹ, không cần model.
+**Mục tiêu:** Mở rộng viết tắt pháp lý trong query (TNHH → "trách nhiệm hữu hạn"...) để BM25 khớp được, vì corpus gần như luôn viết dạng đầy đủ.
 
-**Phạm vi dự kiến (sẽ brainstorm + viết plan riêng khi bắt đầu):**
-1. Xây bảng ánh xạ viết tắt/synonym thủ công cho domain pháp luật SME.
-2. Một bước tiền xử lý query áp trước khi đưa vào BM25 (và dense), giữ nguyên `id` và output schema.
-3. Đo bằng leaderboard như Phase 3.
+**Báo cáo chi tiết:** [docs/reports/phase4_report.md](../reports/phase4_report.md). **Spec:** [specs/2026-06-22-query-abbreviation-expansion-design.md](../specs/2026-06-22-query-abbreviation-expansion-design.md).
 
-**Phụ thuộc:** không, độc lập với Phase 3.
+**Đã làm:** `src/query_processing.py` (`expand_query` + dict 10 viết tắt curated), `run_pipeline(expand_abbreviations=...)`, cờ `--expand-query`. 63/63 test pass. Chạy thật: 55/2000 câu đổi top-5, toàn bộ đều có viết tắt (an toàn, không chạm câu khác).
+
+**Đã loại synonym expansion** — rủi ro loãng precision (đang 0.08).
+
+**Cách đo:** nộp bản `--expand-query` A/B với BM25 thường. Lưu ý lever nhỏ (~4% câu) → kỳ vọng trong vùng nhiễu trên gold 50 câu.
+
+**Phụ thuộc:** không, độc lập.
 
 ---
 

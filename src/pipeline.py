@@ -2,6 +2,7 @@ import json
 
 from src.export import build_result_entry, write_results
 from src.fusion import reciprocal_rank_fusion
+from src.query_processing import expand_query
 from src.retrieval import BM25Retriever
 
 QUESTION_TEXT_KEYS = ("question", "query", "question_text", "content")
@@ -30,6 +31,7 @@ def run_pipeline(
     dense_retriever=None,
     rrf_k: int = 60,
     dense_weight: float = 1.0,
+    expand_abbreviations: bool = False,
 ) -> list[dict]:
     """If `dense_retriever` is given (any object with a `.search(query, top_k)`
     method returning the same shape as BM25Retriever.search), its results are
@@ -44,6 +46,11 @@ def run_pipeline(
 
     `dense_weight` (< 1.0) lowers dense's influence in the fusion; BM25 is
     fixed at weight 1.0. Default 1.0 = equal-weight RRF (Phase 2 behavior).
+
+    `expand_abbreviations` (Phase 4): if True, legal abbreviations in each
+    question (TNHH, GTGT...) are expanded to their full form before retrieval,
+    applied once to the shared query text fed to both BM25 and dense. Default
+    False = no expansion (unchanged behavior).
     """
     questions = _load_json(questions_path)
     if limit is not None:
@@ -52,6 +59,8 @@ def run_pipeline(
     corpus = _load_json(clean_corpus_path)
     bm25_retriever = BM25Retriever(corpus)
     query_texts = [get_question_text(question) for question in questions]
+    if expand_abbreviations:
+        query_texts = [expand_query(text) for text in query_texts]
 
     dense_results_by_index = None
     if dense_retriever is not None and hasattr(dense_retriever, "batch_search"):

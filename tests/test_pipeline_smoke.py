@@ -206,3 +206,38 @@ def test_run_pipeline_respects_limit(tmp_path):
 
     assert len(entries) == 1
     assert entries[0]["id"] == 1
+
+
+def test_run_pipeline_with_abbreviation_expansion_matches_via_full_form(tmp_path):
+    # Question uses "DNNVV"; corpus article uses the full form only. Without
+    # expansion BM25 can't match; with expansion it should retrieve Doc A.
+    questions = [{"id": 1, "question": "DNNVV được ưu đãi gì khi đấu thầu?"}]
+    corpus = [
+        {
+            "relevant_doc_tag": "A|Doc A",
+            "relevant_article_tag": "A|Doc A|Điều 1",
+            "doc_name": "Doc A",
+            "article_id": "Điều 1",
+            "text": "Ưu đãi cho doanh nghiệp nhỏ và vừa khi tham gia đấu thầu.",
+        },
+        {
+            "relevant_doc_tag": "B|Doc B",
+            "relevant_article_tag": "B|Doc B|Điều 2",
+            "doc_name": "Doc B",
+            "article_id": "Điều 2",
+            "text": "Quy định khác không liên quan.",
+        },
+    ]
+    q_path = tmp_path / "questions.json"
+    c_path = tmp_path / "corpus.json"
+    out_path = tmp_path / "results.json"
+    q_path.write_text(json.dumps(questions, ensure_ascii=False), encoding="utf-8")
+    c_path.write_text(json.dumps(corpus, ensure_ascii=False), encoding="utf-8")
+
+    entries = run_pipeline(
+        str(q_path), str(c_path), str(out_path), top_k_retrieve=2, top_k_final=1,
+        expand_abbreviations=True,
+    )
+
+    assert entries[0]["relevant_articles"] == ["A|Doc A|Điều 1"]
+    assert validate_entry(entries[0]) == []
