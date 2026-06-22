@@ -15,6 +15,9 @@ import sys
 import time
 import zipfile
 
+# Reduce CUDA fragmentation OOM (set before torch is imported).
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 # --- Config -----------------------------------------------------------------
 # Folder (a Kaggle Dataset) that contains this repo: src/, vbpl_dat.json,
 # R2AIStage1DATA.json. Adjust the dataset slug to match what you uploaded.
@@ -25,6 +28,8 @@ TOP_K_RETRIEVE = 50   # wide candidate pool -> higher recall ceiling for the rer
 TOP_K_FINAL = 3       # best cutoff found on the leaderboard (ARTICLES_F2)
 USE_DENSE = True      # also pull dense candidates into the pool (raises recall ceiling)
 RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
+RERANK_MAX_LENGTH = 512  # cap seq len — legal articles reach 245k chars; uncapped = GPU OOM
+RERANK_BATCH_SIZE = 16   # lower this (8/4) if you still hit CUDA OOM
 # ---------------------------------------------------------------------------
 
 sys.path.insert(0, REPO_DIR)
@@ -63,7 +68,7 @@ if USE_DENSE:
     )
 
 print(f"Loading reranker {RERANKER_MODEL} (GPU)...")
-reranker = Reranker(RERANKER_MODEL)
+reranker = Reranker(RERANKER_MODEL, max_length=RERANK_MAX_LENGTH, batch_size=RERANK_BATCH_SIZE)
 
 print(f"Running pipeline: candidates=BM25 top-{TOP_K_RETRIEVE}"
       f"{' ∪ dense' if USE_DENSE else ''} -> rerank -> top-{TOP_K_FINAL}...")

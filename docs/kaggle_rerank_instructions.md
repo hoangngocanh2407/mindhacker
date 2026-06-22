@@ -29,6 +29,12 @@ BM25 chỉ đưa điều luật đúng vào top-3 cho ~20% câu (recall 0.20). N
   - `TOP_K_FINAL=3` — cutoff tốt nhất đã xác nhận trên leaderboard.
 - Thời gian: rerank 2000 câu × ~50-100 candidate trên T4 thường vài phút đến ~30 phút tuỳ pool.
 
+#### Nếu gặp CUDA out of memory
+Đã xử lý sẵn: reranker cap `max_length=512` và cắt text candidate (điều luật dài tới 245k ký tự, để nguyên sẽ tràn VRAM). Nếu vẫn OOM:
+- Giảm `RERANK_BATCH_SIZE` xuống 8 hoặc 4.
+- Hoặc giảm `TOP_K_RETRIEVE` (pool nhỏ hơn).
+- Script đã set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` để giảm phân mảnh.
+
 ### 4. Tải kết quả về và nộp
 - Script ghi `submission.zip` (và `results.json`) vào `/kaggle/working/`.
 - Tải `submission.zip` từ panel **Output** của notebook.
