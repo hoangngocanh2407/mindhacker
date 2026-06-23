@@ -35,12 +35,16 @@ DATA_DIR = "/kaggle/input/vlegalqa-data"
 CLONE_DIR = "/kaggle/working/mindhacker"
 OUT_DIR = "/kaggle/working"
 
-TOP_K_RETRIEVE = 50      # wide candidate pool -> higher recall ceiling for the reranker
+# Candidate pool. top-50 ∪ dense took ~50+ min (170k pairs). top-20 BM25-only
+# (~40k pairs) runs in ~10-15 min and keeps almost all recoverable recall
+# (BM25 recall is front-loaded). Widen later (50/100, USE_DENSE=True) if the
+# reranker is recall-limited and you can afford the time.
+TOP_K_RETRIEVE = 20      # candidate depth per source
 TOP_K_FINAL = 3          # best cutoff found on the leaderboard (ARTICLES_F2)
-USE_DENSE = True         # also pull dense candidates into the pool (raises recall ceiling)
+USE_DENSE = False        # add dense candidates too (raises recall ceiling, ~2x slower)
 RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
 RERANK_MAX_LENGTH = 512  # cap seq len — legal articles reach 245k chars; uncapped = GPU OOM
-RERANK_BATCH_SIZE = 16   # lower this (8/4) if you still hit CUDA OOM
+RERANK_BATCH_SIZE = 32   # raise for speed if VRAM allows; lower (8/4) if CUDA OOM
 # ---------------------------------------------------------------------------
 
 # --- Clone the private code repo (token read from Kaggle Secrets, never printed) ---

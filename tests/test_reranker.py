@@ -59,6 +59,28 @@ class _CapturingEncoder:
         return [0.0] * len(pairs)
 
 
+def test_rerank_batch_matches_per_query_rerank():
+    queries = ["q1", "q2"]
+    lists = [CANDIDATES, list(reversed(CANDIDATES))]
+    r = _reranker()
+
+    batched = r.rerank_batch(queries, lists, top_k=2)
+    per_query = [r.rerank(q, lst, top_k=2) for q, lst in zip(queries, lists)]
+
+    assert [[x["relevant_article_tag"] for x in row] for row in batched] == \
+           [[x["relevant_article_tag"] for x in row] for row in per_query]
+
+
+def test_rerank_batch_handles_empty_overall():
+    assert _reranker().rerank_batch([], [], top_k=2) == []
+
+
+def test_rerank_batch_handles_per_question_empty_pool():
+    out = _reranker().rerank_batch(["q1", "q2"], [CANDIDATES, []], top_k=1)
+    assert out[0][0]["relevant_article_tag"] == "C|Doc C|Điều 3"
+    assert out[1] == []
+
+
 def test_rerank_truncates_long_candidate_text_to_cap():
     from src.reranker import CANDIDATE_CHAR_CAP
 

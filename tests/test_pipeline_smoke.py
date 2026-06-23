@@ -193,6 +193,54 @@ class _StubReranker:
         return ordered[:top_k]
 
 
+class _StubBatchReranker:
+    """Reranker exposing rerank_batch, to verify run_pipeline prefers the
+    batched path (one call) over per-question rerank."""
+
+    def __init__(self, preferred_tag: str):
+        self.preferred_tag = preferred_tag
+        self.rerank_calls = 0
+        self.rerank_batch_calls = 0
+
+    def _order(self, candidates, top_k):
+        ordered = sorted(
+            candidates, key=lambda c: 0 if c["relevant_article_tag"] == self.preferred_tag else 1
+        )
+        return ordered[:top_k]
+
+    def rerank(self, query, candidates, top_k=3):
+        self.rerank_calls += 1
+        return self._order(candidates, top_k)
+
+    def rerank_batch(self, queries, candidate_lists, top_k=3):
+        self.rerank_batch_calls += 1
+        return [self._order(c, top_k) for c in candidate_lists]
+
+
+def test_run_pipeline_prefers_rerank_batch_when_available(tmp_path):
+    questions = [
+        {"id": 1, "question": "Hợp đồng lao động xử lý vi phạm kỷ luật như thế nào?"},
+        {"id": 2, "question": "Ưu đãi thuế cho doanh nghiệp nhỏ và vừa khi đấu thầu?"},
+    ]
+    q_path = tmp_path / "questions.json"
+    c_path = tmp_path / "corpus.json"
+    out_path = tmp_path / "results.json"
+    q_path.write_text(json.dumps(questions, ensure_ascii=False), encoding="utf-8")
+    c_path.write_text(json.dumps(CORPUS, ensure_ascii=False), encoding="utf-8")
+
+    reranker = _StubBatchReranker(preferred_tag="B|Doc B|Điều 2")
+    entries = run_pipeline(
+        str(q_path), str(c_path), str(out_path), top_k_retrieve=2, top_k_final=1,
+        reranker=reranker,
+    )
+
+    assert reranker.rerank_batch_calls == 1
+    assert reranker.rerank_calls == 0
+    assert len(entries) == 2
+    for entry in entries:
+        assert validate_entry(entry) == []
+
+
 def test_run_pipeline_reranker_takes_precedence_and_selects_preferred(tmp_path):
     questions = [{"id": 1, "question": "Hợp đồng lao động xử lý vi phạm kỷ luật như thế nào?"}]
     q_path = tmp_path / "questions.json"

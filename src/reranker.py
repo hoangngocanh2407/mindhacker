@@ -51,6 +51,40 @@ class Reranker:
             return []
         pairs = [[query, searchable_text(c)[:CANDIDATE_CHAR_CAP]] for c in candidates]
         scores = self._model.predict(pairs, batch_size=self._batch_size)
+        return self._top_k(candidates, scores, top_k)
+
+    def rerank_batch(
+        self, queries: list[str], candidate_lists: list[list[dict]], top_k: int = 3
+    ) -> list[list[dict]]:
+        """Rerank many questions in ONE cross-encoder call: all (query,
+        candidate) pairs across every question are flattened and scored in a
+        single `.predict(...)` (with a progress bar), then sliced back per
+        question. Same ranking as calling `rerank()` per question, but far
+        better GPU utilization and a single visible progress bar instead of
+        2000 silent iterations.
+        """
+        flat_pairs = []
+        slices = []  # (start, end) into flat_pairs for each question
+        for query, candidates in zip(queries, candidate_lists):
+            start = len(flat_pairs)
+            for candidate in candidates:
+                flat_pairs.append([query, searchable_text(candidate)[:CANDIDATE_CHAR_CAP]])
+            slices.append((start, len(flat_pairs)))
+
+        if not flat_pairs:
+            return [[] for _ in queries]
+
+        all_scores = self._model.predict(
+            flat_pairs, batch_size=self._batch_size, show_progress_bar=True
+        )
+
+        results = []
+        for candidates, (start, end) in zip(candidate_lists, slices):
+            results.append(self._top_k(candidates, all_scores[start:end], top_k))
+        return results
+
+    @staticmethod
+    def _top_k(candidates: list[dict], scores, top_k: int) -> list[dict]:
         ranked = sorted(zip(candidates, scores), key=lambda pair: pair[1], reverse=True)
         results = []
         for candidate, score in ranked[:top_k]:

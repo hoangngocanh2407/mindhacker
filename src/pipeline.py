@@ -78,7 +78,9 @@ def run_pipeline(
     (wider pool = higher recall ceiling), deduped by relevant_article_tag; the
     reranker re-scores it and the top results become the answer. Use a large
     top_k_retrieve (e.g. 50) to give the reranker room to recover correct
-    articles BM25 ranked low.
+    articles BM25 ranked low. If the reranker also exposes
+    `.rerank_batch(queries, candidate_lists, top_k)`, all questions are scored
+    in one cross-encoder call (faster + a single progress bar) — same ranking.
     """
     questions = _load_json(questions_path)
     if limit is not None:
@@ -95,34 +97,52 @@ def run_pipeline(
     if dense_retriever is not None and hasattr(dense_retriever, "batch_search"):
         dense_results_by_index = dense_retriever.batch_search(query_texts, top_k=top_k_retrieve)
 
-    entries = []
-    for index, question in enumerate(questions):
-        query = query_texts[index]
-        bm25_results = bm25_retriever.search(query, top_k=top_k_retrieve)
+    bm25_by_index = [bm25_retriever.search(q, top_k=top_k_retrieve) for q in query_texts]
 
-        dense_results = None
-        if dense_retriever is not None:
+    dense_by_index = [None] * len(questions)
+    if dense_retriever is not None:
+        for index in range(len(questions)):
             if dense_results_by_index is not None:
-                dense_results = dense_results_by_index[index]
+                dense_by_index[index] = dense_results_by_index[index]
             else:
-                dense_results = dense_retriever.search(query, top_k=top_k_retrieve)
+                dense_by_index[index] = dense_retriever.search(query_texts[index], top_k=top_k_retrieve)
 
-        if reranker is not None:
-            candidates = bm25_results
-            if dense_results is not None:
-                candidates = _dedupe_by_tag(bm25_results + dense_results)
-            top_articles = reranker.rerank(query, candidates, top_k=top_k_retrieve)
-        elif dense_results is not None:
-            top_articles = reciprocal_rank_fusion(
-                [bm25_results, dense_results],
-                k=rrf_k,
-                top_k=top_k_retrieve,
-                weights=[1.0, dense_weight],
+    if reranker is not None:
+        candidate_pools = []
+        for index in range(len(questions)):
+            candidates = bm25_by_index[index]
+            if dense_by_index[index] is not None:
+                candidates = _dedupe_by_tag(bm25_by_index[index] + dense_by_index[index])
+            candidate_pools.append(candidates)
+
+        if hasattr(reranker, "rerank_batch"):
+            top_articles_by_index = reranker.rerank_batch(
+                query_texts, candidate_pools, top_k=top_k_retrieve
             )
         else:
-            top_articles = bm25_results
+            top_articles_by_index = [
+                reranker.rerank(query_texts[i], candidate_pools[i], top_k=top_k_retrieve)
+                for i in range(len(questions))
+            ]
+    else:
+        top_articles_by_index = []
+        for index in range(len(questions)):
+            if dense_by_index[index] is not None:
+                top_articles_by_index.append(
+                    reciprocal_rank_fusion(
+                        [bm25_by_index[index], dense_by_index[index]],
+                        k=rrf_k,
+                        top_k=top_k_retrieve,
+                        weights=[1.0, dense_weight],
+                    )
+                )
+            else:
+                top_articles_by_index.append(bm25_by_index[index])
 
-        entries.append(build_result_entry(question["id"], top_articles, top_k_final=top_k_final))
+    entries = [
+        build_result_entry(question["id"], top_articles_by_index[index], top_k_final=top_k_final)
+        for index, question in enumerate(questions)
+    ]
 
     write_results(entries, output_path)
     return entries
