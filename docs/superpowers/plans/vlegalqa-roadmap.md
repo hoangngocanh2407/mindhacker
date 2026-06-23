@@ -7,6 +7,8 @@
 **Bản phân tích đề bài gốc:** [Tong_hop_va_de_xuat_huong_lam_VLegalQA.md](../Tong_hop_va_de_xuat_huong_lam_VLegalQA.md)
 **Tracking các tham số sẽ tune:** [future_tuning_parameters.md](../future_tuning_parameters.md)
 
+> **KẾT LUẬN CUỐI (2026-06-22):** trần điểm IR (~0.18 ARTICLES_F2, đạt bằng reranker) **bị chặn bởi DATA, không phải thuật toán**. Corpus tự thu thập thiếu hầu hết các Luật gốc (Hỗ trợ DNNVV 04/2017, Bộ luật Lao động, Đấu thầu, Quản lý thuế, BHXH, Kế toán, các Luật thuế...), chỉ có nghị định/thông tư hướng dẫn → điều luật đáp án nằm ngoài corpus, không retrieval nào lấy được. Các nhóm khác điểm cao hơn nhờ corpus đầy đủ hơn. Chi tiết + bằng chứng: [docs/reports/corpus_coverage_audit.md](../reports/corpus_coverage_audit.md). Bổ sung các Luật gốc là việc impact cao hơn toàn bộ Phase 1-6 tuning cộng lại.
+
 ---
 
 ## Tổng quan trạng thái
